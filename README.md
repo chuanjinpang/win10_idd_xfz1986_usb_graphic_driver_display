@@ -1,6 +1,7 @@
 # win10_idd_xfz1986_usb_graphic_driver_display
 
 本项目是开源的，计划明年元旦2022/01/01放全部源码到github上。目前是粉丝优先福利期，感兴趣的可以在以下视频中留下邮箱。同时有bug反馈一下。
+
 it's opensource project, plan release source code on 2022/01/01.
 
 if you want get source code before that schedule. 
