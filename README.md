@@ -48,7 +48,13 @@ now it can run ~13pfs in most time.
 
 /bin  include win10 driver and esp32-s2 hex bin files　　windows10驱动和esp32s2的固件测试文件
 
-win10_idd_xfz1986_usb_graphic_driver_display_readme.doc is a file for how to Hardware connect and other info in CN 主要的文档，有安装与硬件连接图，元件清单等等
+/src  源代码目录 source code for host and device
+
+esp-idf-esp32s2_usbdisp_firmware    firmware source code for esp32s2 base esp-idf  v4.3-beta3
+
+win10_idd_xfz1986_usb_graphic_driver  windows driver 
+
+win10_idd_xfz1986_usb_graphic_driver_display_readme.doc is a file for how to Hardware connect and other info in CN 主要的文档，有编译，安装与硬件连接图，元件清单等等
 
 #install:
 
