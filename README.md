@@ -1,19 +1,22 @@
 # win10_idd_xfz1986_usb_graphic_driver_display
 
-本项目是开源的，计划明年元旦2022/01/01放全部源码到github上。目前是粉丝优先福利期，感兴趣的可以在以下视频中留下邮箱。同时有bug反馈一下。
-
-it's opensource project, plan release source code on 2022/01/01.
-
-if you want get source code before that schedule. 
-
-please comment your email address in  below demo video in https://www.bilibili.com/video/BV1tU4y1F7B6?spm_id_from=333.999.0.0
-
-
+本项目是开源的，教程参考文件：win10_idd_xfz1986_usb_graphic_driver_display_readme。内有编译，安装，硬件连接等等信息。
 
 单片机esp32s2+SPI屏实现一个win10 USB接口显示器。
 
 本项目借鉴了众多开源项目，主要借鉴：
 
+*1.github.com/microsoft/Windows-driver-samples/tree/master/video/IndirectDisplay
+
+*2.git://github.com/roshkins/IddSampleDriver.git
+
+*3.Bodmer/TFT_eSPI.git 
+
+*4.nopnop2002/esp-idf-ili9340
+
+*5.serge-rgb/TinyJPEG.git
+
+*6.TJpgDec。
 
 目前FPS在~13FPS,纯黑屏幕时能摸到20FPS。
 主机使用IDD显示驱动方案，将屏幕进行JPEG压缩，然后通过URB（USB请求包）发送到下位机。下位机解压并发DMA传输写屏达到高性能。下位机esp32s2只支持全速度12Mhz,所以必须高压缩的JPEG才能有高FPS.
