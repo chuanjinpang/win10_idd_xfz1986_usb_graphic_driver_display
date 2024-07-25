@@ -19,7 +19,7 @@
 #include <wdf.h>
 #include <wdfusb.h>
 #include "Trace.h"
-
+#include "enc_base.h"
 namespace Microsoft
 {
 namespace WRL
@@ -30,26 +30,26 @@ namespace Wrappers
 typedef HandleT<HandleTraits::HANDLENullTraits> Thread;
 }
 
-#define PIXEL_32BIT
-typedef uint32_t  pixel_type_t;
-#define FB_DISP_DEFAULT_PIXEL_BITS  32
+
 }
 }
 
+#define DISP_MAX_WIDTH  1280
 #define DISP_MAX_HEIGHT 800
-#define DISP_MAX_WIDTH  600
+
 
 typedef struct {
     SLIST_ENTRY node;
     WDFUSBPIPE pipe;
     int id;
-    uint8_t		msg[DISP_MAX_HEIGHT*DISP_MAX_WIDTH*4];
     uint8_t		urb_msg[DISP_MAX_HEIGHT*DISP_MAX_WIDTH*4];
     PSLIST_HEADER urb_list;
     WDFREQUEST Request;
+    WDFMEMORY  wdfMemory;
+
 } urb_itm_t, *purb_itm_t;
 
-#define FPS_STAT_MAX 6
+#define FPS_STAT_MAX 32
 
 typedef struct {
     long tb[FPS_STAT_MAX];
@@ -66,6 +66,19 @@ namespace IndirectDisp
 /// <summary>
 /// Manages the creation and lifetime of a Direct3D render device.
 /// </summary>
+        struct IndirectSampleMonitor
+        {
+            static constexpr size_t szEdidBlock = 128;
+            static constexpr size_t szModeList = 1;
+
+            const BYTE pEdidBlock[szEdidBlock];
+            const struct SampleMonitorMode {
+                DWORD Width;
+                DWORD Height;
+                DWORD VSync;
+            } pModeList[szModeList];
+            const DWORD ulPreferredModeIdx;
+        };
 struct Direct3DDevice {
     Direct3DDevice(LUID AdapterLuid);
     Direct3DDevice();
@@ -78,6 +91,11 @@ struct Direct3DDevice {
     Microsoft::WRL::ComPtr<ID3D11DeviceContext> DeviceContext;
 };
 
+#define  UDISP_CONFIG_STR_LEN  256
+
+typedef struct{
+	char   cstr[UDISP_CONFIG_STR_LEN];
+} config_cstr_t;
 /// <summary>
 /// Manages a thread that consumes buffers from an indirect display swap-chain object.
 /// </summary>
@@ -94,27 +112,35 @@ private:
 
     void Run();
     void RunCore();
-    int usb_send_jpeg_image(urb_itm_t * urb, WDFUSBPIPE pipeHandle, uint8_t * msg, uint8_t * urb_msg, uint32_t * framebuffer, int x, int y, int right, int bottom, int line_width);
-    long get_fps(void);
-    void put_fps_data(long t);
+    void decision_runtime_encoder(WDFDEVICE Device);
 public:
     IDDCX_SWAPCHAIN m_hSwapChain;
     std::shared_ptr<Direct3DDevice> m_Device;
     WDFDEVICE  mp_WdfDevice;
     uint8_t		fb_buf[DISP_MAX_HEIGHT*DISP_MAX_WIDTH*4];
+	uint8_t		msg_buf[DISP_MAX_HEIGHT*DISP_MAX_WIDTH*4+64];
+
+	
     fps_mgr_t fps_mgr ;
-    int jpg_quality;
-    int dynamic_jpg_quality;
-    int target_quaility_size;
+    
+	class enc_base * encoder;
+
     uint16_t gfid;
     SLIST_HEADER urb_list;
-    urb_itm_t * curr_urb;
+    //urb_itm_t * curr_urb;
     HANDLE m_hAvailableBufferEvent;
     Microsoft::WRL::Wrappers::Thread m_hThread;
     Microsoft::WRL::Wrappers::Event m_hTerminateEvent;
 
 };
 
+struct SampleMonitorMode {
+    DWORD Width;
+    DWORD Height;
+    DWORD VSync;
+};
+
+using namespace std;
 /// <summary>
 /// Provides a sample implementation of an indirect display driver.
 /// </summary>
@@ -144,6 +170,7 @@ protected:
 public:
     static const DISPLAYCONFIG_VIDEO_SIGNAL_INFO s_KnownMonitorModes[];
     static const BYTE s_KnownMonitorEdid[];
+	vector<struct SampleMonitorMode > monitor_modes;
 };
 }
 }

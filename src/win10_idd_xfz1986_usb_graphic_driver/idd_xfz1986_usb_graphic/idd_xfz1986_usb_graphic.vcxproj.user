@@ -3,4 +3,10 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <TestCertificate>CN="WDKTestCert q,132781546292131925" | 7D98ADCC7F4AE3F042BB3B07CBA7ABA4A3F71614</TestCertificate>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <TestCertificate>CN="WDKTestCert q,133658758029905040" | EE248EBD7A60A45938F9300B45695334748CF8B7</TestCertificate>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <TestCertificate>CN="WDKTestCert q,133660254466847495" | 8B1AD9A8A5F3376355CC2B435E4DCE550A19A573</TestCertificate>
+  </PropertyGroup>
 </Project>
