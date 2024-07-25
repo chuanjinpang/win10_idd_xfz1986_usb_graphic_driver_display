@@ -1,8 +1,52 @@
 
 # update windows10/11 usb display to version 2.0
 20240725
+
+主要更新：
+
+##　windows驱动程序：
+
+1.支持设备报告其设备显示信息，如屏幕分辨率、解码数据模式，编码数据质量。
+
+2.自动适应设备屏幕分辨率。通过设备报告usb产品字符串中的屏幕大小信息。
+
+3.支持多种编码屏幕数据格式：如rgb16（表示rgb565）、rgb32（表示rgb888x）、jepg。
+
+4.添加编码器基类，支持多编码算法。只需为encode基类添加一个实现。
+
+例如：
+
+esp32udisp0_R320x240_Ejpg4_Ergb16
+
+t113udisp1_R48x480_Ejpg6_rgb16_rgb32
+
+R表示：分辨率 R320x240
+  宽度x高度信息
+
+E表示：Ecode模式
+
+jpg质量为1-10。对于esp32s2，它使用低质量来获得高fps。对于t113-s3可以支持更高质量Ejpg6
+
+rgb16表示数据的rgb565模式。驱动程序将把屏幕数据编码为rgb565格式。
+
+5.代码风格更清晰。将源代码拆分为多个文件。usb部分，编码部分，idd部分。
+
+6.重构usb数据传输协议。删除每个usb包起始字节。只需使用帧头+编码数据内容。
+
+因此，添加新的编码格式和传输所需的数据很容易。例如，jpg数据只填充到帧头后，不需要任何更改。而v1.0需要按每个usb包大小长度就增加一个start byte.
+有一个奇怪的建包，解包的过程。其实没有必要。对于jpg包，帧头后面就是纯粹的jpg数据，直接送去解码就好了。
+
+
+## esp32s2设备端：
+
+1.通过产品字符串来报告设备信息。esp32udisp0_R320x240_Ejpg4_Ergb16
+
+2.由于传输协议更改，更改usb数据帧解析。我们删除每个usb包中的起始字节。其实USB没必要，所以就干掉了。
+
+3.将usb设备id从303a/1986更改为303a/2986。提醒我们有大变化，要对应更新。
+
 major change:
-windows driver:
+## windows driver:
 1. support device report its' device display info, such as screen resolution, decode data mode. encode data quality.
 2. Automatically adapt to devie screen resolution via device report it's screen size in usb production string.
 3. support multi encode screen data format for usb transfer: such as rgb16 (means rgb565), rgb32 (mean rgb888x), jepg.
@@ -19,10 +63,10 @@ E means: Ecode mode
    so it easy to add new encode format & transfer data you wanted. for example, the encode jpg data just fill to playload without any change.
 
 
-esp32s2 device side:
+## esp32s2 device side:
 1. add device info report via product string. esp32udisp0_R320x240_Ejpg4_Ergb16
 2. change usb data frame parse due to transfer protocol change. we delete the start byte in each usb package. it's no need any more.
-3. change usb device id from 303a/1986 to 303a/2986.
+3. change usb device id from 303a/1986 to 303a/2986. yes, we change major, we need update to version 2.0
    
 for old driver:
 please checkout tag v1.0
