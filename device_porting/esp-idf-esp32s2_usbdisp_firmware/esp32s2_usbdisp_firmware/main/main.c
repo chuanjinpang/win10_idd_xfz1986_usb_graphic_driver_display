@@ -19,7 +19,7 @@
 #define WAIT	vTaskDelay(INTERVAL)
 #define CONFIG_USB_VENDOR_RX_BUFSIZE 64
 #define DISP_DATA_BUF_SIZE  (1024*45)
-static const char *TAG = "Udisp";
+static const char *TAG = "udisp";
 
 TFT_t  gdev;
 
@@ -32,6 +32,9 @@ TFT_t  gdev;
 #define CONFIG_RESET_GPIO 2
 #define CONFIG_BL_GPIO 2
 #endif
+
+#define CONFIG_BL_GPIO 5
+
 
 TaskHandle_t render_task = 0;
 
@@ -58,66 +61,47 @@ typedef uint8_t _u8;
 typedef uint16_t _u16;
 typedef uint32_t _u32;
 
-// -- Display Packets
-#define RPUSBDISP_DISPCMD_NOPE             0
-#define RPUSBDISP_DISPCMD_FILL             1
-#define RPUSBDISP_DISPCMD_BITBLT           2
-#define RPUSBDISP_DISPCMD_RECT             3
-#define RPUSBDISP_DISPCMD_COPY_AREA        4
-#define RPUSBDISP_DISPCMD_BITBLT_JPEG      5
-
-char * cmd2str_tb[] = {
-    "NOPE",
-    "FILL",
-    "BITBLT",
-    "RECT",
-    "COPY_AREA",
-    "BITBLT_JPEG",
-
-};
+#define UDISP_TYPE_RGB565  0
+#define UDISP_TYPE_RGB888  1
+#define UDISP_TYPE_YUV420  2
+#define UDISP_TYPE_JPG		3
 
 
-#define RPUSBDISP_CMD_MASK                  (0x3F)
-#define RPUSBDISP_CMD_FLAG_CLEARDITY        (0x1<<6)
-#define RPUSBDISP_CMD_FLAG_START            (0x1<<7)
-typedef struct _rpusbdisp_disp_packet_header_t {
-    _u8 cmd_flag;
-} __attribute__((packed)) rpusbdisp_disp_packet_header_t;
-
-typedef struct _rpusbdisp_disp_bitblt_packet_t {
-    rpusbdisp_disp_packet_header_t header;
-    _u8  operation;
-    _u16 padding;
-    _u16 x;
+typedef struct _udisp_frame_header_t {  //20bytes
+	_u16 crc16;//payload crc16
+    _u8  type; //raw rgb,yuv,jpg,other
+    _u8  cmd;    
+    _u16 x;  //32bit
     _u16 y;
-    _u16 width;
+    _u16 width;//32bit
     _u16 height;
-    _u32 total_bytes;//padding 32bit align
-} __attribute__((packed)) rpusbdisp_disp_bitblt_packet_t;
-
-typedef void (* msg_handle_cb)(uint8_t * msg, int len);
-
+	_u32 frame_id:10;
+    _u32 payload_total:22; //payload max 4MB
+} __attribute__((packed)) udisp_frame_header_t;
 
 
 typedef struct  {
-    _u8 cmd;
-    _u16 fid;
+	udisp_frame_header_t frame_hd;
+    _u16 frame_id;
     _u16 x;
     _u16 y;
     _u16 x2;
     _u16 y2;
     _u16 y_idx;
-    int total;
-    int pix_total;
-    int cnt;
+    int rx_cnt;
     int disp_cnt;
     int done;
-} disp_bitblt_mgr_t;
+
+} disp_frame_mgr_t;
 
 
-disp_bitblt_mgr_t  gblt;
+typedef void (* msg_handle_cb)(uint8_t * msg, int len);
 
-uint8_t lcd_color_line_buf[120*60*2+64] = {0xff};
+
+
+disp_frame_mgr_t  gblt;
+
+uint8_t lcd_color_line_buf[CONFIG_WIDTH*60*2+64] = {0xff};
 uint8_t lcd_color_line_buf_async_io[320*2+64] = {0};
 int lcd_color_line_buf_idx = 0;
 
@@ -133,12 +117,13 @@ long get_system_us(void)
 
 long gta, gtb;
 
+/*********fps***********/
 #define FPS_STAT_MAX 8
 
 typedef struct {
     long tb[FPS_STAT_MAX];
     int cur;
-    float last_fps;
+    long last_fps;
 } fps_mgr_t;
 
 
@@ -146,29 +131,38 @@ fps_mgr_t fps_mgr = {
     .cur = 0,
     .last_fps = -1,
 };
-
-float get_fps(void)
+long get_fps(void)
 {
     fps_mgr_t * mgr = &fps_mgr;
     if(mgr->cur < FPS_STAT_MAX)//we ignore first loop and also ignore rollback case due to a long period
         return mgr->last_fps;//if <0 ,please ignore it
-    else {
-        long a = mgr->tb[(mgr->cur-1)%FPS_STAT_MAX];
-        long b = mgr->tb[(mgr->cur)%FPS_STAT_MAX];
-        float fps = (a - b) / (FPS_STAT_MAX - 1);
-        fps = 1000000 / fps;
+   else {
+	int i=0;
+	long b=0;
+        long a = mgr->tb[(mgr->cur-1)%FPS_STAT_MAX];//cur
+	for(i=2;i<FPS_STAT_MAX;i++){
+	
+        b = mgr->tb[(mgr->cur-i)%FPS_STAT_MAX]; //last
+	if((a-b) > 1000000)
+		break;
+	}
+        b = mgr->tb[(mgr->cur-i)%FPS_STAT_MAX]; //last
+        long fps = (a - b) / (i-1);
+        fps = (1000000*10 ) / fps;
         mgr->last_fps = fps;
         return fps;
     }
 
 }
-void put_fps_data(long t)
+void put_fps_data(long t) //us
 {
     fps_mgr_t * mgr = &fps_mgr;
     mgr->tb[mgr->cur%FPS_STAT_MAX] = t;
     mgr->cur++;//cur ptr to next
 
 }
+
+/**********fps end***********/
 
 void render_done(void)
 {
@@ -297,6 +291,8 @@ size_t jpeg_stream_read(uint8_t * msg, int len, int no_less_flg)
 
 }
 
+#if 1
+static int g_start=1;
 
 int pop_msg_data(uint8_t * rx_buf, int len)
 {
@@ -323,7 +319,7 @@ int pop_msg_data(uint8_t * rx_buf, int len)
 
     }
 
-    if(gblt.cnt >= gblt.total) { //ok we get all data ,so wait the lcd render done.
+    if(gblt.rx_cnt >= gblt.frame_hd.payload_total) { //ok we get all data ,so wait the lcd render done.
         int max_wait_cnt = 20;
 
         while(max_wait_cnt-- && (0 == gblt.done)) {
@@ -333,13 +329,14 @@ int pop_msg_data(uint8_t * rx_buf, int len)
         }
 
         //printf("fps:%.2f\n",get_fps());
-        ESP_LOGI(TAG, "t:%d fid:(%d)%d fps:%.2f\n", xTaskGetTickCount(), gblt.fid, gblt.total, get_fps());
-
+        ESP_LOGI(TAG, "%d fps:%lu\n", gblt.frame_hd.payload_total, get_fps());
+		g_start=1;
 
 
     }
     return 0;
 }
+#endif
 
 uint16_t rgb565(uint8_t r, uint8_t g, uint8_t b) {
 uint16_t pix=(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3));
@@ -363,6 +360,10 @@ void fill_color_bar(uint16_t *buf,int len){
 #endif
 }
 
+#define UDISP_TYPE_RGB565  0
+#define UDISP_TYPE_RGB888  1
+#define UDISP_TYPE_YUV420  2
+#define UDISP_TYPE_JPG		3
 
 void tud_vendor_rx_cb(uint8_t itf)
 {
@@ -372,57 +373,57 @@ void tud_vendor_rx_cb(uint8_t itf)
         int read_res = tud_vendor_n_read(itf,
                                          rx_buf,
                                          CONFIG_USB_VENDOR_RX_BUFSIZE);
-
+	//ESP_LOGI(TAG,"urx:%d %d",read_res, gblt.rx_cnt);
+	#if 1
         if(read_res > 0) {
-            #if 0
-             if(CONFIG_USB_VENDOR_RX_BUFSIZE!=read_res){
-				ESP_LOGI(TAG, "cnt:%d %d %d %d",gblt.disp_cnt,gblt.cnt,gblt.total,xStreamBufferBytesAvailable(disp_rx_ring_buf));
-                ESP_LOGE(TAG, "!!!got data not:%d :%d %x", CONFIG_USB_VENDOR_RX_BUFSIZE,read_res,rx_buf[0]);
-                }
-             #endif
-            if(rx_buf[0] & RPUSBDISP_CMD_FLAG_START) {
+            if(g_start) {
+				udisp_frame_header_t * pblt = (udisp_frame_header_t *)rx_buf;
                 if(0 == render_task)
                     render_task = xTaskGetCurrentTaskHandle();
-
-                switch(rx_buf[0] & RPUSBDISP_CMD_MASK) {
-                case RPUSBDISP_DISPCMD_BITBLT:
-                case RPUSBDISP_DISPCMD_BITBLT_JPEG: {
-                    rpusbdisp_disp_bitblt_packet_t * pblt = (rpusbdisp_disp_bitblt_packet_t *)rx_buf;
+				g_start=0;
+				switch(pblt->type){
+				case UDISP_TYPE_RGB565:
+                case UDISP_TYPE_RGB888:
+				case UDISP_TYPE_YUV420:
+				case UDISP_TYPE_JPG:
+                 {
+  
                     gta = get_system_us();
-                    gblt.cmd = rx_buf[0] & RPUSBDISP_CMD_MASK;
+					
+                    gblt.frame_hd = *pblt;
                     gblt.x = pblt->x;
                     gblt.y = pblt->y;
                     gblt.x2 = pblt->x + pblt->width;
                     gblt.y2 = pblt->y + pblt->height;
                     gblt.y_idx = pblt->y;
-                    gblt.fid = pblt->padding;
-                    //gblt.total= (gblt.x2-gblt.x)*(gblt.y2-gblt.y)*2;
-                    gblt.total = pblt->total_bytes - sizeof(rpusbdisp_disp_bitblt_packet_t); //sub header size
-                    gblt.pix_total = (pblt->width) * (pblt->height) * 2;
-                    gblt.cnt = 0;
-                    gblt.disp_cnt = 0;
-                    gblt.cnt += read_res - sizeof(rpusbdisp_disp_bitblt_packet_t);
+                    gblt.rx_cnt = read_res - sizeof(udisp_frame_header_t); //sub header size
+                   
                     gblt.done = 0;
 					xStreamBufferReset(disp_rx_ring_buf);
 					lcd_color_line_buf_idx=0;//maybe this cause idx bug? when data is transfer done
 					g_crc16=0xffff;
-                    ESP_LOGI(TAG, "rx bblt x:%d y:%d w:%d h:%d total:%d (%d)",pblt->x,pblt->y,pblt->width,pblt->height,gblt.total,(pblt->width)*(pblt->height)*2);
-                    pop_msg_data(&rx_buf[sizeof(rpusbdisp_disp_bitblt_packet_t)], read_res - sizeof(rpusbdisp_disp_bitblt_packet_t));
+                    //ESP_LOGI(TAG, "rx bblt x:%d y:%d w:%d h:%d %d",pblt->x,pblt->y,pblt->width,pblt->height,pblt->payload_total);
+                    pop_msg_data(&rx_buf[sizeof(udisp_frame_header_t)], read_res - sizeof(udisp_frame_header_t));
                     break;
                 }
                 default:
                     ESP_LOGI(TAG, "error cmd");
+					g_start=1;
                     break;
                 }
 
             } else {
 
-                gblt.cnt += read_res - 1;
-                pop_msg_data(rx_buf + 1, read_res - 1);
+                gblt.rx_cnt += read_res;
+                pop_msg_data(rx_buf , read_res );
 
             }
+			if(read_res < CONFIG_USB_VENDOR_RX_BUFSIZE){
+				g_start=1;//end packet.
+				}
 
         }
+	#endif
 
     }
 }
@@ -442,7 +443,7 @@ void usb_main(void)
         .bMaxPacketSize0 = CFG_TUD_ENDOINT0_SIZE,
 
         .idVendor = 0x303A,
-        .idProduct = 0x1986,
+        .idProduct = 0x2986,
         .bcdDevice = 0x0101, // Device FW version
 
         .iManufacturer = 0x01, // see string_descriptor[1] bellow
@@ -457,10 +458,10 @@ void usb_main(void)
         (char[]) {
             0x09, 0x04
         }, // 0: is supported language is English (0x0409)
-        "xfz",                  // 1: Manufacturer
-        "udisp",   // 2: Product
+        "xfz1986",                  // 1: Manufacturer
+        "esp32udisp0_R240x240_Ejpg4",   // 2: Product
         "012-2021",            // 3: Serials, should use chip ID
-        "1986",            // 4: vendor
+        "NewCreate",            // 4: vendor
     };
 
     tinyusb_config_t tusb_cfg = {
@@ -489,6 +490,26 @@ void  inject_jpg_file(uint8_t * buf, int len)
 }
 void display_logo(void);
 
+void test_color_bar(void){
+
+#if 1  
+			{
+	
+			int x=0,y=0;
+				fill_color_bar(lcd_color_line_buf,CONFIG_WIDTH*60);    
+				lcd_bitblt(&gdev,x,y,x+CONFIG_WIDTH,y+60,lcd_color_line_buf);
+			
+	 ESP_LOGI(__FUNCTION__,"%d %d\n",x,y);	  
+	
+			 x=60,y=120;
+				fill_color_bar(lcd_color_line_buf,CONFIG_WIDTH*60);    
+				lcd_bitblt(&gdev,x,y,x+CONFIG_WIDTH,y+60,lcd_color_line_buf);
+	
+	 ESP_LOGI(__FUNCTION__,"%d %d\n",x,y);	  
+			}
+#endif
+
+}
 
 void ILI9341(void *pvParameters)
 {
@@ -520,19 +541,13 @@ void ILI9341(void *pvParameters)
     lcdBGRFilter(&gdev);
 #endif
     display_logo();
-#if 0
-    	{
+	//test_color_bar
 
-		int x=0,y=0;
-			fill_color_bar(lcd_color_line_buf,120*60);	   
-			lcd_bitblt(&gdev,x,y,x+120,y+60,lcd_color_line_buf);
-    	}
-#endif
     while(1) {
 
 #if 1
         if(xStreamBufferBytesAvailable(disp_rx_ring_buf) >= 1) {
-
+#if 0
             if(gblt.cmd == RPUSBDISP_DISPCMD_BITBLT) {
 				{
                 size_t xReceivedBytes = xStreamBufferReceive(disp_rx_ring_buf, mrx_buf, CONFIG_USB_VENDOR_RX_BUFSIZE,  pdMS_TO_TICKS(200));
@@ -541,7 +556,7 @@ void ILI9341(void *pvParameters)
 				}
 
             } else
-
+#endif
             {
 
                 uint16_t imageWidth = 1;
@@ -567,7 +582,7 @@ void ILI9341(void *pvParameters)
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "xfz1986 udisp go");
+    ESP_LOGI(TAG, "xfz1986 udisp go 240710");
     disp_rx_ring_buf = xStreamBufferCreate(DISP_DATA_BUF_SIZE, 1);
 
     usb_main();
