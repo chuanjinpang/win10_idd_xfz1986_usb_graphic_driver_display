@@ -34,8 +34,8 @@ typedef HandleT<HandleTraits::HANDLENullTraits> Thread;
 }
 }
 
-#define DISP_MAX_WIDTH  1280
-#define DISP_MAX_HEIGHT 800
+#define DISP_MAX_WIDTH  1920
+#define DISP_MAX_HEIGHT 1080
 
 
 typedef struct {
@@ -118,8 +118,6 @@ public:
     std::shared_ptr<Direct3DDevice> m_Device;
     WDFDEVICE  mp_WdfDevice;
     uint8_t		fb_buf[DISP_MAX_HEIGHT*DISP_MAX_WIDTH*4];
-	uint8_t		msg_buf[DISP_MAX_HEIGHT*DISP_MAX_WIDTH*4+64];
-
 	
     fps_mgr_t fps_mgr ;
     

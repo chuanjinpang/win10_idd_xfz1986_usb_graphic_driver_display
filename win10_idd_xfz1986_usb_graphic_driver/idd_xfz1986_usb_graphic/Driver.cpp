@@ -29,6 +29,7 @@ using namespace Microsoft::WRL;
 long get_system_us(void);
 long get_fps(fps_mgr_t * mgr);
 void put_fps_data(fps_mgr_t* mgr,long t);
+NTSTATUS usb_send_msg_async(urb_itm_t * urb, WDFUSBPIPE pipe, WDFREQUEST Request, PUCHAR msg, int tsize);
 
 NTSTATUS get_usb_dev_string_info(_In_ WDFDEVICE Device, TCHAR * stringBuf );
 
@@ -49,7 +50,9 @@ static const struct IndirectSampleMonitor::SampleMonitorMode s_SampleDefaultMode
     { 1024 ,768, 60 },
     { 1280 ,600, 60 },
     { 1280 ,720, 60 },
-    { 1280 ,800, 60 },
+    { 1280 ,800, 60 },   
+    { 1600 ,1200, 60 }, 
+	{ 1920 ,1080, 60 },
 
 };
 
@@ -68,7 +71,7 @@ static const struct IndirectSampleMonitor s_SampleMonitors[] =
             0x9B,0xFA,0xFA,0x40,0x01,0x0A,0x20,0x20,0x20,0x20,0x20,0x20,0x00,0x2C
         },
         {
-            { 480, 480, 60 },
+            { 1920, 1080, 60 },
         },
         0
     },
@@ -188,7 +191,7 @@ extern "C" NTSTATUS DriverEntry(
 
     WPP_INIT_TRACING(pDriverObject, pRegistryPath);
 
-    LOGI("idd Driver xfz1986 v2.0  build 20240725\n");
+    LOGI("idd Driver xfz1986 v2.0  build 20240801\n",);
 
     WDF_DRIVER_CONFIG_INIT(&Config,
 
@@ -436,7 +439,8 @@ void SwapChainProcessor::RunCore()
     // Acquire and release buffers in a loop
     for(;;) {
         ComPtr<IDXGIResource> AcquiredBuffer;
-        
+        long a,b,c,d,t;
+	
         // Ask for the next buffer from the producer
         IDARG_OUT_RELEASEANDACQUIREBUFFER Buffer = {};
         hr = IddCxSwapChainReleaseAndAcquireBuffer(m_hSwapChain, &Buffer);
@@ -479,6 +483,7 @@ void SwapChainProcessor::RunCore()
 				D3D11_TEXTURE2D_DESC frameDescriptor;
 				auto* pContext = WdfObjectGet_IndirectDeviceContextWrapper(this->mp_WdfDevice);
 
+				a=get_system_us();
 	            enc_grab_surface(m_Device , AcquiredBuffer , this->fb_buf ,&frameDescriptor);
 			#if 1
                 if(pContext->w*2 == frameDescriptor.Width) {
@@ -487,16 +492,26 @@ void SwapChainProcessor::RunCore()
                    
                 } 
 			#endif	
-				int total_bytes = encoder->enc(&this->msg_buf[sizeof(udisp_frame_header_t)],this->fb_buf,0, 0, frameDescriptor.Width-1, frameDescriptor.Height-1, frameDescriptor.Width);
-				encoder->enc_header(this->msg_buf,0,0, frameDescriptor.Width - 1, frameDescriptor.Height - 1, total_bytes);
-
-				
-
-
-				if(STATUS_SUCCESS == usb_transf_msg(&urb_list,pContext->BulkWritePipe,this->msg_buf,total_bytes+sizeof(udisp_frame_header_t))){
-					put_fps_data(&fps_mgr,get_system_us());
-					LOGI("%d fps:%.2f\n", total_bytes+sizeof(udisp_frame_header_t), ((float)get_fps(&fps_mgr))/10);
-				} 
+				b=get_system_us();
+				{
+					PSLIST_ENTRY	pentry =  InterlockedPopEntrySList(&urb_list);
+					urb_itm_t* purb = (urb_itm_t*)pentry;
+					if(NULL != purb) {
+						LOGD("issue urb id:%d \n",purb->id);
+						int total_bytes = encoder->enc(&purb->urb_msg[sizeof(udisp_frame_header_t)],this->fb_buf,0, 0, frameDescriptor.Width-1, frameDescriptor.Height-1, frameDescriptor.Width);
+						c=get_system_us();						
+						encoder->enc_header(purb->urb_msg,0,0, frameDescriptor.Width - 1, frameDescriptor.Height - 1, total_bytes);
+						total_bytes+=sizeof(udisp_frame_header_t);
+						NTSTATUS ret = usb_send_msg_async(purb, pContext->BulkWritePipe, purb->Request, purb->urb_msg, total_bytes);
+					
+						d=get_system_us();
+						put_fps_data(&fps_mgr,get_system_us());
+						LOGM("%d fps:%.2f g%ld e%ld s%ld %ld (%ld)\n", total_bytes+sizeof(udisp_frame_header_t), ((float)get_fps(&fps_mgr))/10,b-a,c-b,d-c,d-a,a-t);
+					
+					} else {
+						LOGM("no urb item so drop\n");
+					}
+				}
 					
 #else
 #if 0
@@ -506,13 +521,15 @@ void SwapChainProcessor::RunCore()
 				auto* pContext = WdfObjectGet_IndirectDeviceContextWrapper(this->mp_WdfDevice);
 				usb_transf_msg(&urb_list,pContext->BulkWritePipe,this->msg_buf,total_bytes+sizeof(udisp_frame_header_t));
 #endif
-				//	LOG("dryrun... \n");
+				put_fps_data(&fps_mgr,get_system_us());
+				
+				LOGI("dryrun fps:%.2f\n", ((float)get_fps(&fps_mgr))/10);
 
 #endif
             }
 
 next:
-
+			t=get_system_us();
             AcquiredBuffer.Reset();
             hr = IddCxSwapChainFinishedProcessingFrame(m_hSwapChain);
             if(FAILED(hr)) {
@@ -779,7 +796,7 @@ NTSTATUS IddSampleParseMonitorDescription(const IDARG_IN_PARSEMONITORDESCRIPTION
                     );
 
     
-					LOGI("%s %d %d %d\n", __func__, ModeIndex, s_SampleDefaultModes[ModeIndex].Width,
+					LOGI("%s [%d] %d %d %d\n", __func__, ModeIndex, s_SampleDefaultModes[ModeIndex].Width,
                         s_SampleDefaultModes[ModeIndex].Height,
                         s_SampleDefaultModes[ModeIndex].VSync);
                 }
@@ -850,23 +867,20 @@ NTSTATUS IddSampleMonitorQueryModes(IDDCX_MONITOR MonitorObject, const IDARG_IN_
     // monitor's descriptor and instead are based on the static processing capability of the device. The OS will
     // report the available set of modes for a given output as the intersection of monitor modes with target modes.
 
-#if 0
-    TargetModes.push_back(CreateIddCxTargetMode(1024, 600, 60));
-    TargetModes.push_back(CreateIddCxTargetMode(800, 600, 60));
-	#endif
+
 	for (DWORD ModeIndex = 0; ModeIndex < pContext->pContext->monitor_modes.size() ; ModeIndex++)
 	{
 		TargetModes.push_back(CreateIddCxTargetMode(
                 pContext->pContext->monitor_modes[ModeIndex].Width,
                 pContext->pContext->monitor_modes[ModeIndex].Height,
                 pContext->pContext->monitor_modes[ModeIndex].VSync));
-			LOGI("%s %d %d %d\n", __func__, ModeIndex, pContext->pContext->monitor_modes[ModeIndex].Width,
+			LOGI("%s [%d] %d %d %d\n", __func__, ModeIndex, pContext->pContext->monitor_modes[ModeIndex].Width,
                 pContext->pContext->monitor_modes[ModeIndex].Height,
                 pContext->pContext->monitor_modes[ModeIndex].VSync);
 	}
     
 
-	LOGD("%s %p %p in:%d out:%d\n", __func__,pContext,pContext->pContext, pInArgs->TargetModeBufferInputCount,pOutArgs->TargetModeBufferOutputCount);
+	LOGI("%s in:%d out:%d\n", __func__, pInArgs->TargetModeBufferInputCount,pOutArgs->TargetModeBufferOutputCount);
 
     pOutArgs->TargetModeBufferOutputCount = (UINT) TargetModes.size();
 
@@ -977,7 +991,7 @@ int enc_grab_surface( std::shared_ptr<Direct3DDevice> m_Device,ComPtr<IDXGIResou
 
 }
 
-LONG debug_level=LOG_LEVEL_WARN;
+LONG debug_level=LOG_LEVEL_INFO;
 LONG scale_res=320;
 
 #define  USB_INFO_STR_SIZE  16
@@ -992,21 +1006,21 @@ int cnt;
 	int len=strlen(type_str);
 	cnt=sscanf(&type_str[len-1],"%d",reg);
 	if(cnt ==1){
-		LOGD("udisp reg idx:%d\n",*reg);
+		LOGI("udisp reg idx:%d\n",*reg);
 	}else {
 		*reg=0;
-		LOGD("default udisp reg idx:%d\n",*reg);
+		LOGW("default udisp reg idx:%d\n",*reg);
 		
 	}
 
 	
 	cnt=sscanf(whstr,"R%dx%d",w,h);
 	if(cnt == 2){
-		LOGD("udisp w%d h%d\n",*w, *h);
+		LOGI("udisp w%d h%d\n",*w, *h);
 	}else {
 		*w=0;
 		*h=0;
-		LOGD("default udisp w%d h%d\n",*w, *h);
+		LOGW("default udisp w%d h%d\n",*w, *h);
 	}
 
 	switch(enc_str[1]){
@@ -1014,9 +1028,9 @@ int cnt;
 		cnt=sscanf(enc_str,"Ejpg%d",quality);
 		if(cnt==1){
 			*enc=UDISP_TYPE_JPG;
-			LOGD("enc:%d quality:%d\n",*enc,*quality);
+			LOGI("enc:%d quality:%d\n",*enc,*quality);
 		}else {
-			*quality=4;
+			*quality=5;
 			LOGE("wrong Enc str %s",enc_str);	
 
 		}
@@ -1026,21 +1040,22 @@ int cnt;
 		if(cnt==1){
 			if(*quality ==16 ){
 				*enc=UDISP_TYPE_RGB565;
-				LOGD("enc:%d quality:%d\n",*enc,*quality);
+				LOGI("enc:%d quality:%d\n",*enc,*quality);
 			}else if (*quality == 32)
 				{
 				*enc=UDISP_TYPE_RGB888;
-				LOGD("enc:%d quality:%d\n",*enc,*quality);
+				LOGI("enc:%d quality:%d\n",*enc,*quality);
 			}
 		}else {
+			*enc=UDISP_TYPE_RGB888;
 			LOGE("wrong Enc str %s",enc_str);	
 
 		}
 		break;
 	default:
 		*enc=UDISP_TYPE_JPG;
-		*quality=4;
-		LOGD("default enc:%d quality:%d\n",*enc,*quality);
+		*quality=5;
+		LOGW("default enc:%d quality:%d\n",*enc,*quality);
 	}
 
 }

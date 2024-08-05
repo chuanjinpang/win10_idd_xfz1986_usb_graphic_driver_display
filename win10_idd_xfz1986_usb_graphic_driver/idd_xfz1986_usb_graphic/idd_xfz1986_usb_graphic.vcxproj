@@ -218,6 +218,9 @@
     <DriverSign>
       <FileDigestAlgorithm>SHA256</FileDigestAlgorithm>
     </DriverSign>
+    <Inf>
+      <TimeStamp>1.2.0.1</TimeStamp>
+    </Inf>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
@@ -237,7 +240,7 @@
     <Inf>
       <DriverVersionSectionName>
       </DriverVersionSectionName>
-      <TimeStamp>1.0.0.1</TimeStamp>
+      <TimeStamp>1.2.0.1</TimeStamp>
     </Inf>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|ARM'">

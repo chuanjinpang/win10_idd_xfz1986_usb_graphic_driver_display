@@ -207,7 +207,7 @@ NTSTATUS get_usb_dev_string_info(_In_ WDFDEVICE Device, TCHAR * stringBuf ) {
 
 	WdfUsbTargetDeviceGetDeviceDescriptor(pDeviceContext->UsbDevice, &udesc);
 
-	LOG("udesc vid&pid:%x %x\n",udesc.idVendor,udesc.idProduct);
+	LOGI("udesc vid&pid:%x %x\n",udesc.idVendor,udesc.idProduct);
 
 	status = WdfUsbTargetDeviceQueryString(
 		pDeviceContext->UsbDevice,
@@ -240,7 +240,7 @@ NTSTATUS get_usb_dev_string_info(_In_ WDFDEVICE Device, TCHAR * stringBuf ) {
 		0x0409
 		);
 	stringBuf[numCharacters] = '\0';
-	LOG("product %d %S\n", numCharacters, stringBuf);
+	LOGI("product %d %S\n", numCharacters, stringBuf);
 	return status;
 }
 
@@ -363,7 +363,7 @@ void decision_runtime_policy(WDFDEVICE Device){
 	struct SampleMonitorMode mode;
 
 	auto* pDeviceContext = WdfObjectGet_IndirectDeviceContextWrapper(Device);
-	int reg,w,h,enc,quality;
+	int reg,w=0,h=0,enc,quality;
 	parse_usb_dev_info(pDeviceContext->udisp_dev_info.cstr,&reg,&w,&h,&enc,&quality);
 
 	pDeviceContext->w=w;
@@ -387,10 +387,11 @@ void decision_runtime_policy(WDFDEVICE Device){
 			{
 			mode.Width = s_SampleDefaultModes[ModeIndex].Width;
 			mode.Height = s_SampleDefaultModes[ModeIndex].Height;
-			mode.VSync = s_SampleDefaultModes[ModeIndex].VSync;			   
+			mode.VSync = s_SampleDefaultModes[ModeIndex].VSync;	
+			pDeviceContext->pContext->monitor_modes.push_back(mode);
 			}		  
 	}
-	LOGI("%p scale_res:%d monitor size:%d",pDeviceContext,scale_res,pDeviceContext->pContext->monitor_modes.size());
+	LOGI("%s scale_res:%d monitor size:%d",__func__,scale_res,pDeviceContext->pContext->monitor_modes.size());
 }
 
 NTSTATUS
@@ -529,7 +530,7 @@ int usb_transf_init(SLIST_HEADER * urb_list){
 	LOG("%s init urb list\n",__func__);
 	InitializeSListHead(urb_list);
     // Insert into the list.
-#define MAX_URB_SIZE 3
+#define MAX_URB_SIZE 3  //1 for encoder, 2 for usb transfer with pingpong mode.
     for(i = 1; i <= MAX_URB_SIZE; i++) {
         purb = (urb_itm_t *)_aligned_malloc(sizeof(urb_itm_t),
                                             MEMORY_ALLOCATION_ALIGNMENT);
@@ -586,34 +587,5 @@ int usb_transf_exit(SLIST_HEADER * urb_list){
     }
 	return 0;
 }
-#if 1
-int usb_transf_msg(SLIST_HEADER * urb_list ,WDFUSBPIPE pipeHandle,uint8_t * msg,int total_bytes)
-{
-
-
-#if 1
-
-	//issue urb
-
-		PSLIST_ENTRY	pentry =  InterlockedPopEntrySList(urb_list);
-		urb_itm_t* purb = (urb_itm_t*)pentry;
-		if(NULL != purb) {
-			LOGD("issue urb id:%d \n",purb->id);
-			memcpy(purb->urb_msg,msg,total_bytes);
-			NTSTATUS ret = usb_send_msg_async(purb, pipeHandle, purb->Request, purb->urb_msg, total_bytes);
-
-			return ret;
-
-		} else {
-			LOGI("no urb item so drop %d\n",total_bytes);
-		}
-				
-#else
-				LOG("dryrun... \n");
-#endif
-	return STATUS_ABANDONED;
-
-}
-#endif
 
 

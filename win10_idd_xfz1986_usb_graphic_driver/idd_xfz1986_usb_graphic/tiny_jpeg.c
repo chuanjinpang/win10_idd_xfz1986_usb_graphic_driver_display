@@ -1046,9 +1046,9 @@ static OPTIMIZE_ATTR int tjei_encode_main(TJEState* state,
                     }
                     assert(src_index < width * height * src_num_components);
 
-                    uint8_t r = src_data[src_index + 0];
+                    uint8_t b = src_data[src_index + 0];
                     uint8_t g = src_data[src_index + 1];
-                    uint8_t b = src_data[src_index + 2];
+                    uint8_t r = src_data[src_index + 2];
 
                     FLOAT_INT32_T luma = FLOAT_2_INT32(0.299f)   * r + FLOAT_2_INT32(0.587f)    * g + FLOAT_2_INT32(0.114f)    * b - FLOAT_2_INT32(128);
                     FLOAT_INT32_T cb   = FLOAT_2_INT32(-0.1687f) * r - FLOAT_2_INT32(0.3313f)   * g + FLOAT_2_INT32(0.5f)      * b;

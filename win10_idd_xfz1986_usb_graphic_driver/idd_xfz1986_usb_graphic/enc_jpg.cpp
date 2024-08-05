@@ -48,13 +48,15 @@ int enc_jpg::enc( uint8_t * enc, uint8_t * src,int x, int y, int right, int bott
 {
 	stream_mgr_t m_mgr;
 	stream_mgr_t * mgr = &m_mgr;
+	#if 0
 	int len=rgb888a_to_rgb888(enc,(uint32_t*)src,x,y,right,bottom,line_width);
 	memcpy(src,enc,len);
+	#endif
 	//ok we use jpeg transfer data
 	mgr->data = enc;
 	mgr->max = JPEG_MAX_SIZE;
 	mgr->dp = 0;
-	if (!tje_encode_to_ctx(mgr, (right - x + 1), (bottom - y + 1), 3, src, jpg_quality)) {
+	if (!tje_encode_to_ctx(mgr, (right - x + 1), (bottom - y + 1), 4, src, jpg_quality)) {
 		LOGE("Could not encode JPEG\n");
 	}
 

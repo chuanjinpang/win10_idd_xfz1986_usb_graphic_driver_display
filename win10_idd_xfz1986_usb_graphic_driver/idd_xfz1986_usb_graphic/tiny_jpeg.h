@@ -101,7 +101,7 @@ extern "C"
 #define FLOAT_INT_MODE
 
 
-#define JPEG_MAX_SIZE (600*480*4)
+#define JPEG_MAX_SIZE (2048*1024)
 
 #ifdef KERNEL_MODE
 
