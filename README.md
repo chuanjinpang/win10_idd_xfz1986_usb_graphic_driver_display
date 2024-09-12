@@ -18,7 +18,7 @@
 
 esp32udisp0_R320x240_Ejpg4_Ergb16
 
-t113udisp1_R48x480_Ejpg6_rgb16_rgb32
+t113udisp1_R480x480_Ejpg6_rgb16_rgb32
 
 R表示：分辨率 R320x240
   宽度x高度信息
@@ -67,12 +67,35 @@ E means: Ecode mode
 1. add device info report via product string. esp32udisp0_R320x240_Ejpg4_Ergb16
 2. change usb data frame parse due to transfer protocol change. we delete the start byte in each usb package. it's no need any more.
 3. change usb device id from 303a/1986 to 303a/2986. yes, we change major, we need update to version 2.0
+
+## 芯片支持情况 chip support list
+1. espressif
+   
+    esp32s2/esp32s3: https://github.com/chuanjinpang/win10_idd_xfz1986_usb_graphic_driver_display/tree/main/device_porting/esp-idf-esp32s2_usbdisp_firmware
+   
+    esp32P4 : https://github.com/espressif/esp-iot-solution/tree/master/examples/usb/device/usb_extend_screen
+   
+     demo video: 【【里程碑事件】乐鑫esp32P4官方支持USB显示屏+多点触摸屏+音频输出-哔哩哔哩】 https://b23.tv/AiJDWti
+   
+2. allwinner
+   
+   f1c200s/f1c100s : wait update support v2.0 driver. currently support legacy v1.0
+   
+   t113-s3 :
+     https://github.com/chuanjinpang/lv_port_linux_fb_udisp_t113
+     https://github.com/chuanjinpang/t113_usb_display_kernel_driver_module
+   
+     demo video: 【【开源_年更发布】t113太极派手撸LVGL版USB口袋显示屏-哔哩哔哩】 https://b23.tv/BibK24L
+   
+                 【【开源+软件定义USB显示单元+触摸演示】USB复合设备增加触摸屏功能-哔哩哔哩】 https://b23.tv/cS1W6Q7
+
+
    
 for old driver:
 please checkout tag v1.0
 
 -------------------
-# win10_idd_xfz1986_usb_graphic_driver_display
+# win10_idd_xfz1986_usb_graphic_driver_display （legacy v1.0）
 
 本项目是开源的，教程参考文件：win10_idd_xfz1986_usb_graphic_driver_display_readme。内有编译，安装，硬件连接等等信息。
 
