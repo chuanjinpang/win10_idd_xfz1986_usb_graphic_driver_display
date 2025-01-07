@@ -363,14 +363,15 @@ void decision_runtime_policy(WDFDEVICE Device){
 	struct SampleMonitorMode mode;
 
 	auto* pDeviceContext = WdfObjectGet_IndirectDeviceContextWrapper(Device);
-	int reg,w=0,h=0,enc,quality;
-	parse_usb_dev_info(pDeviceContext->udisp_dev_info.cstr,&reg,&w,&h,&enc,&quality);
+	int reg,w=0,h=0,enc,quality,fps;
+	parse_usb_dev_info(pDeviceContext->udisp_dev_info.cstr,&reg,&w,&h,&enc,&quality,&fps);
 
 	pDeviceContext->w=w;
 	pDeviceContext->h=h;
 	pDeviceContext->enc=enc;
 	pDeviceContext->quality=quality;
-	LOGI("w%d h%d enc%d quaility%d",w,h,enc,quality);
+	pDeviceContext->fps = fps;
+	LOGI("w%d h%d enc%d quaility%d fps:%d",w,h,enc,quality,fps);
 	if(w != 0) {
 		mode.Width = w;
 		mode.Height = h;

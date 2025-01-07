@@ -49,10 +49,10 @@ typedef struct {
 
 } urb_itm_t, *purb_itm_t;
 
-#define FPS_STAT_MAX 32
+#define FPS_STAT_MAX 8
 
 typedef struct {
-    long tb[FPS_STAT_MAX];
+    int64_t tb[FPS_STAT_MAX];
     int cur;
     long last_fps;
 } fps_mgr_t;

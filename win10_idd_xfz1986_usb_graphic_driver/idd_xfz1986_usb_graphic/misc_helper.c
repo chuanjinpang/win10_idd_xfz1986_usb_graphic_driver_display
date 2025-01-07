@@ -27,13 +27,13 @@ uint16_t crc16_calc(unsigned char *puchMsg, unsigned int usDataLen)
 #if 1
 
 
-long get_os_us(void)
+int64_t get_os_us(void)
 {
 
 	SYSTEMTIME time;
 
 	GetSystemTime(&time);
-	long time_ms = (time.wSecond * 1000) + time.wMilliseconds;
+	int64_t time_ms = (time.wSecond * 1000) + time.wMilliseconds;
 
 	return time_ms * 1000;
 
@@ -42,7 +42,7 @@ long get_os_us(void)
 }
 
 
-long get_system_us(void)
+int64_t get_system_us(void)
 {
 	return get_os_us();
 }
@@ -55,8 +55,8 @@ long get_fps(fps_mgr_t * mgr)
 		 return mgr->last_fps;//if <0 ,please ignore it
 	else {
 	 int i=0;
-	 long b=0;
-		 long a = mgr->tb[(mgr->cur-1)%FPS_STAT_MAX];//cur
+	 int64_t b=0;
+		 int64_t a = mgr->tb[(mgr->cur-1)%FPS_STAT_MAX];//cur
 	 for(i=2;i<FPS_STAT_MAX;i++){
 	 
 		 b = mgr->tb[(mgr->cur-i)%FPS_STAT_MAX]; //last
@@ -72,7 +72,7 @@ long get_fps(fps_mgr_t * mgr)
 
 }
 
-void put_fps_data(fps_mgr_t* mgr,long t)
+void put_fps_data(fps_mgr_t* mgr,int64_t t)
 {
 	static int init = 0;
 
