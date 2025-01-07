@@ -26,9 +26,9 @@ Environment:
 using namespace std;
 using namespace Microsoft::IndirectDisp;
 using namespace Microsoft::WRL;
-long get_system_us(void);
+int64_t get_system_us(void);
 long get_fps(fps_mgr_t * mgr);
-void put_fps_data(fps_mgr_t* mgr,long t);
+void put_fps_data(fps_mgr_t* mgr,int64_t);
 NTSTATUS usb_send_msg_async(urb_itm_t * urb, WDFUSBPIPE pipe, WDFREQUEST Request, PUCHAR msg, int tsize);
 
 NTSTATUS get_usb_dev_string_info(_In_ WDFDEVICE Device, TCHAR * stringBuf );
@@ -155,6 +155,7 @@ struct IndirectDeviceContextWrapper {
 	int h;
 	int enc;
 	int quality;
+	int fps;
 
     void Cleanup() {
         delete pContext;
@@ -423,6 +424,7 @@ void SwapChainProcessor::RunCore()
 {
     // Get the DXGI device interface
     ComPtr<IDXGIDevice> DxgiDevice;
+	int64_t  last_fps_us=0;
     HRESULT hr = m_Device->Device.As(&DxgiDevice);
     if(FAILED(hr)) {
         return;
@@ -439,7 +441,8 @@ void SwapChainProcessor::RunCore()
     // Acquire and release buffers in a loop
     for(;;) {
         ComPtr<IDXGIResource> AcquiredBuffer;
-        long a,b,c,d,t;
+        int64_t a,b,c,d,t;
+	
 	
         // Ask for the next buffer from the producer
         IDARG_OUT_RELEASEANDACQUIREBUFFER Buffer = {};
@@ -482,7 +485,7 @@ void SwapChainProcessor::RunCore()
 #if 1
 				D3D11_TEXTURE2D_DESC frameDescriptor;
 				auto* pContext = WdfObjectGet_IndirectDeviceContextWrapper(this->mp_WdfDevice);
-
+				long  fps_interval=1000000/pContext->fps -1000;//for skew case
 				a=get_system_us();
 	            enc_grab_surface(m_Device , AcquiredBuffer , this->fb_buf ,&frameDescriptor);
 			#if 1
@@ -493,9 +496,16 @@ void SwapChainProcessor::RunCore()
                 } 
 			#endif	
 				b=get_system_us();
+			LOGD("last:%lld now:%lld diff:%lld intv%ld\n",last_fps_us,b,b-last_fps_us,fps_interval);
+				if((pContext->fps >= 50) || (b-last_fps_us)>= fps_interval) //can issue frame
 				{
 					PSLIST_ENTRY	pentry =  InterlockedPopEntrySList(&urb_list);
 					urb_itm_t* purb = (urb_itm_t*)pentry;
+					
+					last_fps_us += fps_interval;//increase tick
+					if( (b-last_fps_us) > fps_interval ) //we last more 1 frame, so sync to b 
+						last_fps_us = b;
+					
 					if(NULL != purb) {
 						LOGD("issue urb id:%d \n",purb->id);
 						int total_bytes = encoder->enc(&purb->urb_msg[sizeof(udisp_frame_header_t)],this->fb_buf,0, 0, frameDescriptor.Width-1, frameDescriptor.Height-1, frameDescriptor.Width);
@@ -506,12 +516,17 @@ void SwapChainProcessor::RunCore()
 					
 						d=get_system_us();
 						put_fps_data(&fps_mgr,get_system_us());
-						LOGM("%d fps:%.2f g%ld e%ld s%ld %ld (%ld)\n", total_bytes+sizeof(udisp_frame_header_t), ((float)get_fps(&fps_mgr))/10,b-a,c-b,d-c,d-a,a-t);
+						LOGM("[%lld]%d fps:%.2f g%ld e%ld s%ld %ld (%ld)\n",last_fps_us, total_bytes+sizeof(udisp_frame_header_t), ((float)get_fps(&fps_mgr))/10,b-a,c-b,d-c,d-a,a-t);
 					
 					} else {
 						LOGM("no urb item so drop\n");
 					}
-				}
+				}else {
+						LOGD("drop by fps\n"); //drop by fps
+						if(b<last_fps_us){
+							last_fps_us=b;
+							}
+					}
 					
 #else
 #if 0
@@ -995,11 +1010,11 @@ LONG debug_level=LOG_LEVEL_INFO;
 LONG scale_res=320;
 
 #define  USB_INFO_STR_SIZE  16
-void parse_usb_dev_info(char * str,int * reg,int * w, int * h, int * enc, int * quality){
+void parse_usb_dev_info(char * str,int * reg,int * w, int * h, int * enc, int * quality, int * fps){
 char whstr[USB_INFO_STR_SIZE];
-char enc_str[USB_INFO_STR_SIZE],type_str[USB_INFO_STR_SIZE];
+char enc_str[USB_INFO_STR_SIZE] = { 0 }, type_str[USB_INFO_STR_SIZE] = { 0 }, fps_str[USB_INFO_STR_SIZE] = { 0 };
 int cnt;
-	cnt = sscanf(str,"%[^_]_%[^_]_%[^_]",type_str,whstr,enc_str);
+	cnt = sscanf(str,"%[^_]_%[^_]_%[^_]_%[^_]",type_str,whstr,enc_str,fps_str);
 	if(cnt<3){
 	LOGW("%s dev info string violation xfz1986 udisp SPEC, so use default\n",str);
 	}
@@ -1022,6 +1037,15 @@ int cnt;
 		*h=0;
 		LOGW("default udisp w%d h%d\n",*w, *h);
 	}
+
+    cnt = sscanf(fps_str, "Fps%d", fps);
+    if (cnt == 1) {
+        LOGI("udisp fps%d\n", *fps);
+    }
+    else {
+        *fps=60;
+        LOGW("default udisp fps%d\n", *fps);
+    }
 
 	switch(enc_str[1]){
 	case 'j':
