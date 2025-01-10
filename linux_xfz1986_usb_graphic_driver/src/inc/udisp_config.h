@@ -1,0 +1,12 @@
+#ifndef _UDISP_CONFIG_H
+#define _UDISP_CONFIG_H
+
+
+#define UDISP_DEFAULT_WIDTH  480
+#define UDISP_DEFAULT_HEIGHT 480
+
+
+#define UDISP_USB_VENDOR_ID 0x303a
+#define UDISP_USB_PRODUCT_ID 0x2987
+
+#endif
