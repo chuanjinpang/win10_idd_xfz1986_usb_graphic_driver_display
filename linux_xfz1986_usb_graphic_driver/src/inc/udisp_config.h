@@ -7,6 +7,6 @@
 
 
 #define UDISP_USB_VENDOR_ID 0x303a
-#define UDISP_USB_PRODUCT_ID 0x2987
+#define UDISP_USB_PRODUCT_ID 0x1986
 
 #endif
