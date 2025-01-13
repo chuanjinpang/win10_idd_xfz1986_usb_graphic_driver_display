@@ -1,3 +1,8 @@
+20250113  update
+1. add ubuntu/Linux OS support, so we can use extern screen on ubuntu OS/Windows10/11.
+2. windows10/11 add Fps config for esp32s2/s3 with a low FPS
+   example: esp32udisp0_R320x240_Ejpg4_Fps30_Ergb16
+   this will limit the FPS @30. 
 
 # update windows10/11 usb display to version 2.0
 20240725
