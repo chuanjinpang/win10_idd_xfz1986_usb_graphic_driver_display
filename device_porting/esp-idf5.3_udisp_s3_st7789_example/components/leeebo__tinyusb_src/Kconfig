@@ -1,0 +1,14 @@
+menu "TinyUSB soucre"
+
+    config TINYUSB_SOURCE_CODE_ONLY
+        bool "Using tinyusb source code only"
+        default n
+        help
+            "Select if you just use the source code, not build as a library"
+    config USING_SYNOPSYS_DWC2_DRIVER
+        bool "Using synopsys dwc2 driver, otherwise using esp32sx dcd driver"
+        default y
+        help
+            "For esp32sx, user can choose esp32sx dcd driver or common synopsys dwc2 driver"
+
+endmenu
