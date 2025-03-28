@@ -75,7 +75,6 @@ NTSTATUS usb_send_msg_async(urb_itm_t * urb, WDFUSBPIPE pipe, WDFREQUEST Request
 	size_t  bufferSize;
 	NTSTATUS status;
 	PVOID  writeBuffer;
-	;
 
 	writeSize = tsize;
 
@@ -89,7 +88,7 @@ NTSTATUS usb_send_msg_async(urb_itm_t * urb, WDFUSBPIPE pipe, WDFREQUEST Request
 		NULL
 		);
 	if (!NT_SUCCESS(status)) {
-		LOGE("WdfMemoryCreate NG\n");
+		LOGE("WdfMemoryCreate NG %x\n",status);
 		return status;
 	}
 
@@ -129,6 +128,7 @@ NTSTATUS usb_send_msg_async(urb_itm_t * urb, WDFUSBPIPE pipe, WDFREQUEST Request
 		LOGE("WdfRequestSend NG %x\n", status);
 		goto Exit;
 	}
+
 Exit:
 
 
@@ -358,20 +358,67 @@ SelectInterfaces(
 
 #endif
 
+VOID registry_config_dev_info(WDFDEVICE Device)
+{
+    LOGD(("<---ReadRegistryInformation"));
+		TCHAR	tchar_udisp_registry[UDISP_CONFIG_STR_LEN];
+
+        HKEY hOpenKey = NULL;
+        if (RegOpenKeyEx(HKEY_LOCAL_MACHINE,                     // handle to open key
+                         TEXT("SYSTEM\\CurrentControlset\\Services\\xfz1986_usb_graphic\\Parameters"),       // address of name of subkey to open
+                         0,                        // options (must be NULL)
+                         KEY_QUERY_VALUE|KEY_READ, // just want to QUERY a value
+                         &hOpenKey                 // address of handle to open key
+                        ) == ERROR_SUCCESS) {
+
+            LONG regErr;
+            auto* pDeviceContext = WdfObjectGet_IndirectDeviceContextWrapper(Device);
+
+            DWORD szType = REG_SZ;
+            DWORD reqSize = UDISP_CONFIG_STR_LEN;
+            regErr=RegQueryValueEx(hOpenKey,
+                        TEXT("udisp"),
+                        NULL, 
+                        &szType,
+                        (PBYTE)tchar_udisp_registry,
+                        &reqSize);
+		if(regErr == NO_ERROR){		
+			WideCharToMultiByte(CP_ACP,0, tchar_udisp_registry,-1, pDeviceContext->udisp_registry_dev_info.cstr,UDISP_CONFIG_STR_LEN,NULL,NULL);
+        	LOGI(("udisp_registry Value = %s %d"), pDeviceContext->udisp_registry_dev_info.cstr, reqSize);
+		}else {
+            pDeviceContext->udisp_registry_dev_info.cstr[0] = '\0';
+			 LOGD(("queryValue error:%x"),regErr);
+		}
+					
+        } else {
+            LOGD(("Could not open config section"));
+        }
+    
+    LOGD(("ReadRegistryInformation--->"));
+}
 
 void decision_runtime_policy(WDFDEVICE Device){
 	struct SampleMonitorMode mode;
 
 	auto* pDeviceContext = WdfObjectGet_IndirectDeviceContextWrapper(Device);
-	int reg,w=0,h=0,enc,quality,fps;
-	parse_usb_dev_info(pDeviceContext->udisp_dev_info.cstr,&reg,&w,&h,&enc,&quality,&fps);
+	int reg,w=0,h=0,enc,quality,fps,blimit;
+	registry_config_dev_info(Device);
+	if(strlen(pDeviceContext->udisp_registry_dev_info.cstr)>3){
+			parse_usb_dev_info(pDeviceContext->udisp_registry_dev_info.cstr,&reg,&w,&h,&enc,&quality,&fps,&blimit);
+			LOGI("config %s by registry\n", pDeviceContext->udisp_registry_dev_info.cstr);
 
+		}
+	else {
+		parse_usb_dev_info(pDeviceContext->udisp_dev_info.cstr,&reg,&w,&h,&enc,&quality,&fps,&blimit);
+	}
 	pDeviceContext->w=w;
 	pDeviceContext->h=h;
 	pDeviceContext->enc=enc;
 	pDeviceContext->quality=quality;
 	pDeviceContext->fps = fps;
-	LOGI("w%d h%d enc%d quaility%d fps:%d",w,h,enc,quality,fps);
+	pDeviceContext->blimit=blimit;
+	pDeviceContext->dbg_mode =0;
+	LOGI("w%d h%d enc%d quaility%d fps:%d blimit:%d",w,h,enc,quality,fps,blimit);
 	if(w != 0) {
 		mode.Width = w;
 		mode.Height = h;
@@ -539,7 +586,7 @@ int usb_transf_init(SLIST_HEADER * urb_list){
             LOGE("Memory allocation failed.\n");
             break;
         }
-		NTSTATUS status; status = WdfRequestCreate(
+		status = WdfRequestCreate(
                      WDF_NO_OBJECT_ATTRIBUTES,
                      NULL,
                      &purb->Request

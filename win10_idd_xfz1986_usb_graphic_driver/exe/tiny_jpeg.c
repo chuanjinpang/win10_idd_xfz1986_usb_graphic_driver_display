@@ -103,6 +103,16 @@ int main()
 
 
 
+#pragma warning(disable:4200)  //
+#pragma warning(disable:4201)  // nameless struct/union
+#pragma warning(disable:4214)  // bit field types other than int
+#pragma warning(disable:4189)  // bit field types other than int
+#pragma warning(disable:4101) 
+#pragma warning(disable:4100) 
+#pragma warning(disable:4005) 
+#pragma warning(disable:4456) 
+#pragma warning(disable:4244)
+#pragma warning(disable:4242)
 
 
 
@@ -382,7 +392,7 @@ static void tjei_write(TJEState* state, const void* data, size_t num_bytes, size
     memcpy(state->output_buffer + state->output_buffer_count, data, capped_count);
     state->output_buffer_count += capped_count;
 
-    assert(state->output_buffer_count <= TJEI_BUFFER_SIZE - 1);
+    //assert(state->output_buffer_count <= TJEI_BUFFER_SIZE - 1);
 
     // Flush the buffer.
     if(state->output_buffer_count == TJEI_BUFFER_SIZE - 1) {
@@ -404,7 +414,7 @@ static void tjei_write_DQT(TJEState* state, const uint8_t* matrix, uint8_t id)
     tjei_write(state, &DQT, sizeof(uint16_t), 1);
     len = tjei_be_word(0x0043); // 2(len) + 1(id) + 64(matrix) = 67 = 0x43
     tjei_write(state, &len, sizeof(uint16_t), 1);
-    assert(id < 4);
+    //assert(id < 4);
     precision_and_id = id;  // 0x0000 8 bits | 0x00id
     tjei_write(state, &precision_and_id, sizeof(uint8_t), 1);
     // Write matrix

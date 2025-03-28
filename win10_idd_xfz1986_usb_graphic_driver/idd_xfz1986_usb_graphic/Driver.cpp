@@ -26,6 +26,7 @@ Environment:
 using namespace std;
 using namespace Microsoft::IndirectDisp;
 using namespace Microsoft::WRL;
+VOID registry_config_base(void);
 int64_t get_system_us(void);
 long get_fps(fps_mgr_t * mgr);
 void put_fps_data(fps_mgr_t* mgr,int64_t);
@@ -138,7 +139,7 @@ struct IndirectDeviceContextWrapper {
     IndirectDeviceContext* pContext;
     //usb disp
     WDFUSBDEVICE                    UsbDevice;
-
+    WDFUSBPIPE pipe;
     WDFUSBINTERFACE                 UsbInterface;
 
     WDFUSBPIPE                      BulkReadPipe;
@@ -148,7 +149,9 @@ struct IndirectDeviceContextWrapper {
 	ULONG max_out_pkg_size;
     ULONG							UsbDeviceTraits;
     //
+    PSLIST_HEADER purb_list;
 
+	config_cstr_t udisp_registry_dev_info;
 	config_cstr_t udisp_dev_info;
 	TCHAR   tchar_udisp_devinfo[UDISP_CONFIG_STR_LEN];
 	int w;
@@ -156,6 +159,9 @@ struct IndirectDeviceContextWrapper {
 	int enc;
 	int quality;
 	int fps;
+	int blimit;//buffer limit
+	//dbg mode
+	int dbg_mode;//0 is normal.
 
     void Cleanup() {
         delete pContext;
@@ -190,8 +196,8 @@ extern "C" NTSTATUS DriverEntry(
     WDF_OBJECT_ATTRIBUTES Attributes;
     WDF_OBJECT_ATTRIBUTES_INIT(&Attributes);
 
-    WPP_INIT_TRACING(pDriverObject, pRegistryPath);
-
+    //WPP_INIT_TRACING(pDriverObject, pRegistryPath);
+	registry_config_base();
     LOGI("idd Driver xfz1986 v2.0  build 20240801\n",);
 
     WDF_DRIVER_CONFIG_INIT(&Config,
@@ -207,9 +213,93 @@ extern "C" NTSTATUS DriverEntry(
     return Status;
 }
 
+#include "ioctl.h"
 
 
 
+
+VOID
+udisp1986_EvtIoDeviceControl(
+      _In_
+    WDFDEVICE Device,
+    _In_
+    WDFREQUEST Request,
+    _In_
+    size_t OutputBufferLength,
+    _In_
+    size_t InputBufferLength,
+    _In_
+    ULONG IoControlCode
+    )
+{
+NTSTATUS status;
+PVOID  buf;
+UINT * pbuf;
+auto* pContext = WdfObjectGet_IndirectDeviceContextWrapper(Device);
+
+    LOGD("--> %s %x i:%d o:%d\n",__func__,IoControlCode,InputBufferLength,OutputBufferLength);
+
+
+	switch(IoControlCode) {
+	
+	 case IOCTL_UDISP_EXIT_DBG:
+		{
+		pContext->dbg_mode=0;
+		LOGD("exit dbg_mode%d\n",pContext->dbg_mode);
+	 	}
+	 break;
+	 case IOCTL_UDISP_ISSUE_URB:
+	 {
+	
+		status =WdfRequestRetrieveInputBuffer(Request,InputBufferLength,&buf,NULL);
+		if (!NT_SUCCESS(status)) {
+			LOGE("inbuf NG\n");
+			goto out;
+		}
+		{
+		int total_bytes=0;
+		
+			PSLIST_ENTRY	pentry =  InterlockedPopEntrySList(pContext->purb_list);
+			urb_itm_t* purb = (urb_itm_t*)pentry;
+			
+			if(NULL != purb) {
+				
+				
+				memcpy(purb->urb_msg,buf,InputBufferLength);
+				total_bytes =InputBufferLength;
+				NTSTATUS ret = usb_send_msg_async(purb, pContext->BulkWritePipe, purb->Request, purb->urb_msg, total_bytes);
+				LOGD("issue urb id:%d  %d\n",purb->id,total_bytes);
+			} else {
+				LOGD("no urb item so drop\n");
+			}
+		}
+		status =WdfRequestRetrieveOutputBuffer(Request,OutputBufferLength,&buf,NULL);
+		if (!NT_SUCCESS(status)) {
+			LOGE("outbuf NG\n");
+			goto out;
+		}
+		pContext->dbg_mode=1;
+		LOGD("enter dbg mode\n");
+	}
+	break;
+	case IOCTL_UDISP_CONFIG:
+		status =WdfRequestRetrieveOutputBuffer(Request,OutputBufferLength,&buf,NULL);
+		if (!NT_SUCCESS(status)) {
+			LOGE("outbuf NG\n");
+			goto out;
+		}
+		memcpy((char *)buf,pContext->udisp_dev_info.cstr,strlen(pContext->udisp_dev_info.cstr)+1);
+		OutputBufferLength=strlen(pContext->udisp_dev_info.cstr)+1;
+		LOGD("%s\n",pContext->udisp_dev_info.cstr);
+		break;
+	default:
+		LOGW("invalid ioctl\n");
+	}
+	
+	out:
+	
+	 WdfRequestCompleteWithInformation(Request, 0,OutputBufferLength );;
+}
 
 
 
@@ -218,7 +308,9 @@ NTSTATUS IddSampleDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT pDeviceInit)
 {
 
     NTSTATUS Status = STATUS_SUCCESS;
+    WDF_IO_QUEUE_CONFIG                 ioQueueConfig;
     WDF_PNPPOWER_EVENT_CALLBACKS PnpPowerCallbacks;
+    WDFQUEUE                            queue;
 
     UNREFERENCED_PARAMETER(Driver);
 	LOGI("IddSampleDeviceAdd\n");
@@ -243,7 +335,7 @@ NTSTATUS IddSampleDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT pDeviceInit)
     // If the driver wishes to handle custom IoDeviceControl requests, it's necessary to use this callback since IddCx
     // redirects IoDeviceControl requests to an internal queue. This sample does not need this.
     // IddConfig.EvtIddCxDeviceIoControl = IddSampleIoDeviceControl;
-
+	IddConfig.EvtIddCxDeviceIoControl =udisp1986_EvtIoDeviceControl;
     IddConfig.EvtIddCxAdapterInitFinished = IddSampleAdapterInitFinished;
 
     IddConfig.EvtIddCxParseMonitorDescription = IddSampleParseMonitorDescription;
@@ -277,12 +369,40 @@ NTSTATUS IddSampleDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT pDeviceInit)
         return Status;
     }
 
+
+	
+	//ioctl
+    {
+		
+		LOGI("WdfDeviceCreateDeviceInterface\n");
+#if 1
+		    //
+	    // Register a device interface so that app can find our device and talk to it.
+	    //
+	    Status = WdfDeviceCreateDeviceInterface(Device,
+	                                            (LPGUID) &GUID_DEVINTERFACE_UDISP1986,
+	                                            NULL); // Reference String
+
+	    if (!NT_SUCCESS(Status)) {
+	        LOGI("WdfDeviceCreateDeviceInterface failed  %!STATUS!\n", Status);
+	        goto Error;
+	    }
+
+#endif
+    }
+
+
+	
+	LOGI("IddCxDeviceInitialize 220-defalut\n");
+
     Status = IddCxDeviceInitialize(Device);
 
     // Create a new device context object and attach it to the WDF device object
     auto* pContext = WdfObjectGet_IndirectDeviceContextWrapper(Device);
     pContext->pContext = new IndirectDeviceContext(Device);
 
+    Error:
+    LOGI("IddSampleDeviceAdd exit\n");
     return Status;
 }
 
@@ -344,9 +464,17 @@ HRESULT Direct3DDevice::Init()
 SwapChainProcessor::SwapChainProcessor(IDDCX_SWAPCHAIN hSwapChain, shared_ptr<Direct3DDevice> Device, WDFDEVICE  WdfDevice, HANDLE NewFrameEvent)
     : m_hSwapChain(hSwapChain), m_Device(Device), mp_WdfDevice(WdfDevice), m_hAvailableBufferEvent(NewFrameEvent)
 {
+	auto* pContext = WdfObjectGet_IndirectDeviceContextWrapper(WdfDevice);
+		
     m_hTerminateEvent.Attach(CreateEvent(nullptr, FALSE, FALSE, nullptr));
 	usb_transf_init(&urb_list);
-
+	pContext->purb_list=&urb_list;
+    LOGI("create SwapChainProcessor");
+#if 0
+	   WdfDeviceSetDeviceInterfaceState(WdfDevice, (LPGUID)&GUID_DEVINTERFACE_OSRUSBFX2,
+        NULL, TRUE);
+    LOGI("WdfDeviceSetDeviceInterfaceState ensable\n");
+#endif
     // Immediately create and run the swap-chain processing thread, passing 'this' as the thread parameter
     m_hThread.Attach(CreateThread(nullptr, 0, RunThread, this, 0, nullptr));
 }
@@ -354,8 +482,12 @@ SwapChainProcessor::SwapChainProcessor(IDDCX_SWAPCHAIN hSwapChain, shared_ptr<Di
 SwapChainProcessor::~SwapChainProcessor()
 {
     // Alert the swap-chain processing thread to terminate
+    auto* pContext = WdfObjectGet_IndirectDeviceContextWrapper(this->mp_WdfDevice);
     SetEvent(m_hTerminateEvent.Get());
+    pContext->purb_list = NULL;
+    LOGI("destroy SwapChainProcessor");
 	usb_transf_exit(&urb_list);
+
 
     if(m_hThread.Get()) {
         // Wait for the thread to terminate
@@ -426,6 +558,8 @@ void SwapChainProcessor::RunCore()
     ComPtr<IDXGIDevice> DxgiDevice;
 	int64_t  last_fps_us=0;
     HRESULT hr = m_Device->Device.As(&DxgiDevice);
+	auto* pContext = WdfObjectGet_IndirectDeviceContextWrapper(this->mp_WdfDevice);
+	long  fps_interval=1000000/pContext->fps -1000;//for skew case
     if(FAILED(hr)) {
         return;
     }
@@ -441,7 +575,7 @@ void SwapChainProcessor::RunCore()
     // Acquire and release buffers in a loop
     for(;;) {
         ComPtr<IDXGIResource> AcquiredBuffer;
-        int64_t a,b,c,d,t;
+        int64_t a,b,c,d,t,swap_t;
 	
 	
         // Ask for the next buffer from the producer
@@ -482,38 +616,62 @@ void SwapChainProcessor::RunCore()
             // ==============================
             //LOG("-dxgi fid:%d dirty:%d\n",Buffer.MetaData.PresentationFrameNumber,Buffer.MetaData.DirtyRectCount);
             {
-#if 1
 				D3D11_TEXTURE2D_DESC frameDescriptor;
-				auto* pContext = WdfObjectGet_IndirectDeviceContextWrapper(this->mp_WdfDevice);
-				long  fps_interval=1000000/pContext->fps -1000;//for skew case
-				a=get_system_us();
-	            enc_grab_surface(m_Device , AcquiredBuffer , this->fb_buf ,&frameDescriptor);
-			#if 1
-                if(pContext->w*2 == frameDescriptor.Width) {
-					LOGD("scale...%d to %d \n",frameDescriptor.Width,pContext->w);
-                    scale_for_sample_2to1((uint32_t *)this->fb_buf, (uint32_t *)this->fb_buf, &frameDescriptor);
-                   
-                } 
-			#endif	
-				b=get_system_us();
-			LOGD("last:%lld now:%lld diff:%lld intv%ld\n",last_fps_us,b,b-last_fps_us,fps_interval);
-				if((pContext->fps >= 50) || (b-last_fps_us)>= fps_interval) //can issue frame
+
+
+				if(pContext->dbg_mode ){
+					LOGI("drop by dbg_mode:%d\n",pContext->dbg_mode);
+					goto next;
+				}
+				swap_t=get_system_us();
+				LOGD("last:%lld now:%lld diff:%lld intv%ld\n",last_fps_us,swap_t,swap_t-last_fps_us,fps_interval);
+				if((pContext->fps >= 50) || (swap_t-last_fps_us)>= fps_interval) //can issue frame
 				{
 					PSLIST_ENTRY	pentry =  InterlockedPopEntrySList(&urb_list);
 					urb_itm_t* purb = (urb_itm_t*)pentry;
 					
 					last_fps_us += fps_interval;//increase tick
-					if( (b-last_fps_us) > fps_interval ) //we last more 1 frame, so sync to b 
-						last_fps_us = b;
+					if( (swap_t-last_fps_us) > fps_interval ) //we lost more 1 frame, so sync to swap_t 
+						last_fps_us = swap_t;
 					
-					if(NULL != purb) {
-						LOGD("issue urb id:%d \n",purb->id);
-						int total_bytes = encoder->enc(&purb->urb_msg[sizeof(udisp_frame_header_t)],this->fb_buf,0, 0, frameDescriptor.Width-1, frameDescriptor.Height-1, frameDescriptor.Width);
-						c=get_system_us();						
+					if(NULL != purb) 
+					{
+						a=get_system_us();
+						enc_grab_surface(m_Device , AcquiredBuffer , this->fb_buf ,&frameDescriptor);
+#if 1
+						if(pContext->w*2 == frameDescriptor.Width) {
+							LOGD("scale...%d to %d \n",frameDescriptor.Width,pContext->w);
+						    scale_for_sample_2to1((uint32_t *)this->fb_buf, (uint32_t *)this->fb_buf, &frameDescriptor);
+						   
+						} 
+#endif	
+						b=get_system_us();
+						
+						int total_bytes = encoder->enc(&purb->urb_msg[sizeof(udisp_frame_header_t)],this->fb_buf,0, 0, frameDescriptor.Width-1, frameDescriptor.Height-1, frameDescriptor.Width,pContext->blimit);
+						c=get_system_us();		
+
 						encoder->enc_header(purb->urb_msg,0,0, frameDescriptor.Width - 1, frameDescriptor.Height - 1, total_bytes);
 						total_bytes+=sizeof(udisp_frame_header_t);
+
+						#if 1
+						LOGD("issue urb id:%d \n",purb->id);
 						NTSTATUS ret = usb_send_msg_async(purb, pContext->BulkWritePipe, purb->Request, purb->urb_msg, total_bytes);
+						if((total_bytes % pContext->max_out_pkg_size) ==0){
+							pentry =  InterlockedPopEntrySList(&urb_list);
+							purb = (urb_itm_t*)pentry;
 					
+							if(purb){
+								enc_base::disp_setup_frame_header(purb->urb_msg,0,0,0,0,0xff,0);
+						 		usb_send_msg_async(purb, pContext->BulkWritePipe, purb->Request, purb->urb_msg, sizeof(udisp_frame_header_t));
+								LOGM("issue zlp %d (epsize:%d)\n",purb->id,pContext->max_out_pkg_size);
+								}
+                            else {
+                                LOGM("issue zlp no urb\n");
+                            }
+						}
+						#else
+							InterlockedPushEntrySList(purb->urb_list,&(purb->node));
+						#endif
 						d=get_system_us();
 						put_fps_data(&fps_mgr,get_system_us());
 						LOGM("[%lld]%d fps:%.2f g%ld e%ld s%ld %ld (%ld)\n",last_fps_us, total_bytes+sizeof(udisp_frame_header_t), ((float)get_fps(&fps_mgr))/10,b-a,c-b,d-c,d-a,a-t);
@@ -522,25 +680,11 @@ void SwapChainProcessor::RunCore()
 						LOGM("no urb item so drop\n");
 					}
 				}else {
-						LOGD("drop by fps\n"); //drop by fps
-						if(b<last_fps_us){
-							last_fps_us=b;
-							}
-					}
-					
-#else
-#if 0
-				int total_bytes = 64-16;
-				encoder->enc_header(this->msg_buf,0,0, 8, 8, total_bytes);
-
-				auto* pContext = WdfObjectGet_IndirectDeviceContextWrapper(this->mp_WdfDevice);
-				usb_transf_msg(&urb_list,pContext->BulkWritePipe,this->msg_buf,total_bytes+sizeof(udisp_frame_header_t));
-#endif
-				put_fps_data(&fps_mgr,get_system_us());
-				
-				LOGI("dryrun fps:%.2f\n", ((float)get_fps(&fps_mgr))/10);
-
-#endif
+					LOGD("drop by fps\n"); //drop by fps
+					if(b<last_fps_us){
+						last_fps_us=b;
+						}
+				}
             }
 
 next:
@@ -956,6 +1100,7 @@ int enc_grab_surface( std::shared_ptr<Direct3DDevice> m_Device,ComPtr<IDXGIResou
             frameDescriptor.ArraySize = 1;
             frameDescriptor.SampleDesc.Count = 1;
             *pframeDescriptor = frameDescriptor;
+			//LOGI("%s %d %d %d\n",__func__,__LINE__,frameDescriptor.Width,frameDescriptor.Height);
             hr = m_Device->Device->CreateTexture2D(&frameDescriptor, NULL, &hNewDesktopImage);
             if(FAILED(hr)) {
                 RESET_OBJECT(hAcquiredDesktopImage);
@@ -986,12 +1131,23 @@ int enc_grab_surface( std::shared_ptr<Direct3DDevice> m_Device,ComPtr<IDXGIResou
             //
             DXGI_MAPPED_RECT mappedRect;
             hr = hStagingSurf->Map(&mappedRect, DXGI_MAP_READ);
+			//LOGI("%s %d %d\n",__func__,__LINE__,mappedRect.Pitch);
+			
             if(SUCCEEDED(hr)) {
 
 				{
-                    memcpy(fb_buf, mappedRect.pBits, frameDescriptor.Width * frameDescriptor.Height * 4);
+					if(mappedRect.Pitch != frameDescriptor.Width*4){
+                        //LOGI("%s %d %d %d\n", __func__, __LINE__, frameDescriptor.Width, frameDescriptor.Height);
+						for(int i=0;i<frameDescriptor.Height;i++){
+							memcpy(&fb_buf[frameDescriptor.Width * 4*i], &(mappedRect.pBits[mappedRect.Pitch*i]), frameDescriptor.Width * 4);
+							}
+						}
+					else
+                    	memcpy(fb_buf, mappedRect.pBits, frameDescriptor.Width * frameDescriptor.Height * 4);
                     
                 }
+			
+			//LOGI("%s %d %d %d\n",__func__,__LINE__,frameDescriptor.Width,frameDescriptor.Height);
 
                 hStagingSurf->Unmap();
             } else {
@@ -1006,83 +1162,197 @@ int enc_grab_surface( std::shared_ptr<Direct3DDevice> m_Device,ComPtr<IDXGIResou
 
 }
 
-LONG debug_level=LOG_LEVEL_INFO;
-LONG scale_res=320;
+LONG debug_level = LOG_LEVEL_INFO;
+LONG scale_res = 320;
+
+VOID registry_config_base(void)
+{
+		TCHAR	tchar_udisp_registry[UDISP_CONFIG_STR_LEN];
+
+        HKEY hOpenKey = NULL;
+        if (RegOpenKeyEx(HKEY_LOCAL_MACHINE,                     // handle to open key
+                         TEXT("SYSTEM\\CurrentControlset\\Services\\xfz1986_usb_graphic\\Parameters"),       // address of name of subkey to open
+                         0,                        // options (must be NULL)
+                         KEY_QUERY_VALUE|KEY_READ, // just want to QUERY a value
+                         &hOpenKey                 // address of handle to open key
+                        ) == ERROR_SUCCESS) {
+
+            LONG regErr;
+            DWORD dwType = REG_DWORD;
+            DWORD dwWritten = sizeof(DWORD);
+            regErr = RegQueryValueEx(hOpenKey,
+                TEXT("debug_level"),
+                NULL,
+                &dwType,
+                (LPBYTE)&debug_level,
+                &dwWritten);
+            if (regErr == NO_ERROR) {
+               
+                LOGI(("debug Value = %d %d"), debug_level, dwWritten);
+            }
+            else {
+                LOGI(("query debug Value error:%x"), regErr);
+            }
+			//
+			    regErr = RegQueryValueEx(hOpenKey,
+                TEXT("scale_res"),
+                NULL,
+                &dwType,
+                (LPBYTE)&scale_res,
+                &dwWritten);
+            if (regErr == NO_ERROR) {
+               
+                LOGI(("scale_res Value = %d %d"), scale_res, dwWritten);
+            }
+            else {
+                LOGI(("query scale_res Value error:%x"), regErr);
+            }
+			
+					
+        } else {
+            LOGD(("Could not open config section"));
+        }
+    
+    LOGI("%s debug:%d scale:%d\n",__func__,debug_level,scale_res);
+}
+
+
+
 
 #define  USB_INFO_STR_SIZE  16
-void parse_usb_dev_info(char * str,int * reg,int * w, int * h, int * enc, int * quality, int * fps){
-char whstr[USB_INFO_STR_SIZE];
-char enc_str[USB_INFO_STR_SIZE] = { 0 }, type_str[USB_INFO_STR_SIZE] = { 0 }, fps_str[USB_INFO_STR_SIZE] = { 0 };
-int cnt;
-	cnt = sscanf(str,"%[^_]_%[^_]_%[^_]_%[^_]",type_str,whstr,enc_str,fps_str);
-	if(cnt<3){
-	LOGW("%s dev info string violation xfz1986 udisp SPEC, so use default\n",str);
+
+typedef struct {
+char str[USB_INFO_STR_SIZE];
+} item_t;
+
+int  split_config_str(char * str, item_t * cfg ,int max){
+
+	int cnt=0;
+	int i=0,j=0;
+	redo:
+		for(j=0;str[i]!=0;i++){
+			if(str[i] !='_' && str[i] !=0){
+				cfg[cnt].str[j++]=str[i];
+				LOGD("[%d]%d %c %s\n",cnt,i,str[i],cfg[cnt].str);
+			}else{
+				LOGD("[%d]%s\n",cnt,cfg[cnt].str);
+				cnt++;
+				if( cnt > max)
+					break;
+				i++;//skip 				
+				goto redo;
+				}
+		}
+		if(j)
+			cnt++;
+		return cnt;
+
+}
+
+
+#define CFG_MAX 10
+void parse_usb_dev_info(char * str,int * reg,int * w, int * h, int * enc, int * quality, int * fps, int * blimit){
+item_t cfg[CFG_MAX] = { 0 };
+int cnt=0,t,i;
+int enc_cfged=0;
+	cnt=split_config_str(str,cfg,CFG_MAX);
+		
+	//cnt = sscanf(str,"%[^_]_%[^_]_%[^_]_%[^_]",type_str,whstr,enc_str,fps_str);
+	if(cnt<2){
+	LOGW("%s [%d] dev info string violation xfz1986 udisp SPEC, so use default\n",str,cnt);
 	}
-	int len=strlen(type_str);
-	cnt=sscanf(&type_str[len-1],"%d",reg);
-	if(cnt ==1){
+	
+
+	int len=strlen(cfg[0].str);
+	t=sscanf(&cfg[0].str[len-1],"%d",reg);
+	if(t ==1){
 		LOGI("udisp reg idx:%d\n",*reg);
 	}else {
 		*reg=0;
 		LOGW("default udisp reg idx:%d\n",*reg);
 		
 	}
+	//set default
+	*w=0;
+	*h=0;
+	*fps=60;
+	*enc=UDISP_TYPE_JPG;
+	*quality=5;
+	*blimit=1920*1080*4;//1080P full
 
-	
-	cnt=sscanf(whstr,"R%dx%d",w,h);
-	if(cnt == 2){
-		LOGI("udisp w%d h%d\n",*w, *h);
-	}else {
-		*w=0;
-		*h=0;
-		LOGW("default udisp w%d h%d\n",*w, *h);
-	}
-
-    cnt = sscanf(fps_str, "Fps%d", fps);
-    if (cnt == 1) {
-        LOGI("udisp fps%d\n", *fps);
-    }
-    else {
-        *fps=60;
-        LOGW("default udisp fps%d\n", *fps);
-    }
-
-	switch(enc_str[1]){
-	case 'j':
-		cnt=sscanf(enc_str,"Ejpg%d",quality);
-		if(cnt==1){
-			*enc=UDISP_TYPE_JPG;
-			LOGI("enc:%d quality:%d\n",*enc,*quality);
-		}else {
-			*quality=5;
-			LOGE("wrong Enc str %s",enc_str);	
-
-		}
-		break;
-	case 'r':
-		cnt=sscanf(enc_str,"Ergb%d",quality);
-		if(cnt==1){
-			if(*quality ==16 ){
-				*enc=UDISP_TYPE_RGB565;
-				LOGI("enc:%d quality:%d\n",*enc,*quality);
-			}else if (*quality == 32)
-				{
-				*enc=UDISP_TYPE_RGB888;
-				LOGI("enc:%d quality:%d\n",*enc,*quality);
+	for(i=1;i<cnt;i++){
+		char * str=cfg[i].str;
+		LOGD("%d %s\n",i,str);
+		switch(str[0])
+		{
+		case 'B':
+			t=sscanf(str,"Bl%d",blimit);
+			if(t == 1){
+				*blimit*=1024;
+				LOGI("blimit:%d\n",*blimit);
 			}
-		}else {
-			*enc=UDISP_TYPE_RGB888;
-			LOGE("wrong Enc str %s",enc_str);	
+			//*blimit=599*1024;
+			break;
+		case 'R':
+			t=sscanf(str,"R%dx%d",w,h);
+			if(t == 2){
+				LOGI("udisp w%d h%d\n",*w, *h);
+			}
+			//*w=1024;
+			//*h=600;
+			break;
+		case 'F':
+			t = sscanf(str, "Fps%d", fps);
+		    if (t == 1) {
+		        LOGI("udisp fps%d\n", *fps);
+		    }
+			//*fps=60;
+			break;
+		case 'E':
+			if(enc_cfged) //first is high prio
+				break;
+			switch(str[1]){
+			case 'j':
+				t=sscanf(str,"Ejpg%d",quality);
+				if(t==1){
+					*enc=UDISP_TYPE_JPG;
+					enc_cfged++;
+					LOGI("enc:%d quality:%d\n",*enc,*quality);
+				}
+				break;
+			case 'r':
+				t=sscanf(str,"Ergb%d",quality);
+				if(t==1){
+					if(*quality ==16 ){
+						*enc=UDISP_TYPE_RGB565;
+						enc_cfged++;
+						LOGI("enc:%d quality:%d\n",*enc,*quality);
+					}else if (*quality == 32)
+						{
+						*enc=UDISP_TYPE_RGB888;
+						enc_cfged++;
+						LOGI("enc:%d quality:%d\n",*enc,*quality);
+					}
+				}else {
+					*enc=UDISP_TYPE_RGB888;
+					LOGE("wrong Enc str %s",str);
+			
+				}
+				break;
+			default:
+				*enc=UDISP_TYPE_JPG;
+				*quality=5;
+				LOGW("default enc:%d quality:%d\n",*enc,*quality);
+			}
+			break;
+		default:
+			;
 
 		}
-		break;
-	default:
-		*enc=UDISP_TYPE_JPG;
-		*quality=5;
-		LOGW("default enc:%d quality:%d\n",*enc,*quality);
 	}
 
 }
+
 
 
 void SwapChainProcessor::decision_runtime_encoder(WDFDEVICE Device){

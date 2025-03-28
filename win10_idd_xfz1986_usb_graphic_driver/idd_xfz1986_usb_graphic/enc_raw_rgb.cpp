@@ -42,7 +42,7 @@ int pos = 0;
 	
 }
 
-int enc_rgb565::enc( uint8_t * enc, uint8_t * src,int x, int y, int right, int bottom, int line_width)
+int enc_rgb565::enc( uint8_t * enc, uint8_t * src,int x, int y, int right, int bottom, int line_width,int limit)
 {
 	return rgb888x_encoder_rgb565((uint16_t *)enc,(uint32_t*)src, x, y, right, bottom, line_width);
 

@@ -51,8 +51,8 @@ END
 //
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 1,2,0,1
- PRODUCTVERSION 1,0,0,1
+ FILEVERSION 1,2,25,2
+ PRODUCTVERSION 1,0,25,2
  FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
  FILEFLAGS 0x1L
@@ -67,14 +67,14 @@ BEGIN
     BEGIN
         BLOCK "080404b0"
         BEGIN
-            VALUE "CompanyName", "DIY enjoy it"
+            VALUE "CompanyName", "diy_udisp_demo"
             VALUE "FileDescription", "xfz1986_win10_usb_display"
-            VALUE "FileVersion", "1.2.0.1"
-            VALUE "InternalName", "xfz1986_.dll"
+            VALUE "FileVersion", "1.2.25.2"
+            VALUE "InternalName", "xfz1986udisp.dll"
             VALUE "LegalCopyright", "Copyright (C) 2024"
-            VALUE "OriginalFilename", "xfz1986_.dll"
+            VALUE "OriginalFilename", "xfz1986udisp.dll"
             VALUE "ProductName", "usb_display_for_embeded"
-            VALUE "ProductVersion", "1.0.0.1"
+            VALUE "ProductVersion", "1.0.25.2"
         END
     END
     BLOCK "VarFileInfo"
