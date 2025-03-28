@@ -1,0 +1,13 @@
+version: 0.1.0
+targets:
+  - esp32p4
+  - esp32s3
+  - esp32s2
+dependencies:
+  idf: ">=5.3"
+  leeebo/tinyusb_src:
+    version: "*"
+  espressif/esp_new_jpeg:
+    version: "^0.5.0"
+    rules:
+      - if: "target in [esp32s3,esp32s2]"

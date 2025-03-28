@@ -1,0 +1,24 @@
+dependencies:
+  espressif/esp_new_jpeg:
+    dependencies: []
+    source:
+      path: /home/taiji/esp_ws/esp_sparkbot/example/udisp_sd2/components/espressif__esp_new_jpeg
+      type: local
+    version: 0.5.1
+  idf:
+    source:
+      type: idf
+    version: 5.3.1
+  leeebo/tinyusb_src:
+    dependencies: []
+    source:
+      path: /home/taiji/esp_ws/esp_sparkbot/example/udisp_sd2/components/leeebo__tinyusb_src
+      type: local
+    version: 0.16.0~6
+direct_dependencies:
+- espressif/esp_new_jpeg
+- idf
+- leeebo/tinyusb_src
+manifest_hash: 2fbb8454627b3abdd7816062c6c36467da8444b4ade1f250b47dc33acd10a972
+target: esp32s3
+version: 2.0.0
