@@ -1,0 +1,11 @@
+ 使用方法：
+1. esp_new_jpeg 是esp的simd加速的解码库< 非官方，自己整的>。 解压放入C:\Users\q\Documents\Arduino\libraries
+2. udisp_xfz1986是usb display by xfz1986的usb 扩展库，解压放入C:\Users\q\Documents\Arduino\libraries
+
+测试环境：
+1 arduino2.3.2 + esp by Espressif 3.0.7 < should use esp3.0.7, other version usb maybe broken>
+2.esp32s3
+
+例子代码
+1. 请使用udisp1986的中参考例子， C:\Users\q\Documents\Arduino\libraries\udisp_xfz1986\examples\esp32sx_udisp_st7789
+giop关系，例子代码中有，使用1,5,6,7,8这几个管脚。
