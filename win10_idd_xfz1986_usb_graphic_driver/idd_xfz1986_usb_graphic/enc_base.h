@@ -46,15 +46,13 @@ class enc_base{
 	
 public:
 
-	int disp_setup_frame_header(uint8_t * msg, int x, int y, int right, int bottom, uint8_t op_flg ,uint32_t total);
+	static int disp_setup_frame_header(uint8_t * msg, int x, int y, int right, int bottom, uint8_t op_flg ,uint32_t total);
 	int enc_header(uint8_t * enc,int x, int y, int right, int bottom, int total_bytes){
 			
 		disp_setup_frame_header(enc, x, y, right, bottom, this->enc_type, total_bytes);
-		//disp_setup_frame_header(enc, x, y, right, bottom, 5, total_bytes);
-		return 0;
 		return 0;
 		};
-	virtual int enc( uint8_t * enc, uint8_t * src,int x, int y, int right, int bottom, int line_width)=0;
+	virtual int enc( uint8_t * enc, uint8_t * src,int x, int y, int right, int bottom, int line_width,int limit)=0;
 
 protected :
 		uint8_t enc_type;

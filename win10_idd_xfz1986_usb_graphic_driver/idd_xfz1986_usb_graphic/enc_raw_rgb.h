@@ -6,7 +6,7 @@ public:
 	enc_rgb565(){
 			enc_type=UDISP_TYPE_RGB565;
 		}
-	int enc(uint8_t* enc, uint8_t * src, int x, int y, int right, int bottom, int line_width);
+	int enc(uint8_t* enc, uint8_t * src, int x, int y, int right, int bottom, int line_width,int limit);
 
 };
 
@@ -17,7 +17,7 @@ public:
 			enc_type=UDISP_TYPE_RGB888;
 		}
 
-	int enc(uint8_t* enc, uint8_t * src, int x, int y, int right, int bottom, int line_width) {
+	int enc(uint8_t* enc, uint8_t * src, int x, int y, int right, int bottom, int line_width,int limit) {
 		int total_bytes = (right - x + 1) * (bottom - y + 1) * 2;
 		memcpy(enc, src, total_bytes);
 		return 0;

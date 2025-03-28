@@ -46,7 +46,6 @@ typedef struct {
     PSLIST_HEADER urb_list;
     WDFREQUEST Request;
     WDFMEMORY  wdfMemory;
-
 } urb_itm_t, *purb_itm_t;
 
 #define FPS_STAT_MAX 8
@@ -125,6 +124,7 @@ public:
 
     uint16_t gfid;
     SLIST_HEADER urb_list;
+	int max_out_pkg_size;
     //urb_itm_t * curr_urb;
     HANDLE m_hAvailableBufferEvent;
     Microsoft::WRL::Wrappers::Thread m_hThread;
@@ -172,3 +172,4 @@ public:
 };
 }
 }
+

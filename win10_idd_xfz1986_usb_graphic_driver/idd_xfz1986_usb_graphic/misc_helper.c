@@ -30,12 +30,14 @@ uint16_t crc16_calc(unsigned char *puchMsg, unsigned int usDataLen)
 int64_t get_os_us(void)
 {
 
-	SYSTEMTIME time;
+	FILETIME time;
+	LARGE_INTEGER li;
+	GetSystemTimePreciseAsFileTime(&time);
+	li.LowPart = time.dwLowDateTime;
+	li.HighPart = time.dwHighDateTime;//100ns
+	int64_t time_ms = li.QuadPart;
 
-	GetSystemTime(&time);
-	int64_t time_ms = (time.wSecond * 1000) + time.wMilliseconds;
-
-	return time_ms * 1000;
+	return time_ms /10;
 
 
 

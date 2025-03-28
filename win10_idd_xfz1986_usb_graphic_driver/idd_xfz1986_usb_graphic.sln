@@ -1,9 +1,9 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio 14
-VisualStudioVersion = 14.0.23107.0
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.30330.147
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "idd_xfz1986_usb_graphic", "idd_xfz1986_usb_graphic\idd_xfz1986_usb_graphic.vcxproj", "{625B727E-D2F9-4F74-88BE-650B1416E76C}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "xfz1986_usb_graphic", "idd_xfz1986_usb_graphic\idd_xfz1986_usb_graphic.vcxproj", "{625B727E-D2F9-4F74-88BE-650B1416E76C}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -44,5 +44,8 @@ Global
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {18A46BDD-049F-4086-AAAB-675C3B2A1419}
 	EndGlobalSection
 EndGlobal
