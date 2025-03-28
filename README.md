@@ -1,17 +1,22 @@
 QQ 交流群：496016248
 
 # 20250328 update
-1.  windowsc驱动签名版本发布，windowsc驱动签名版本发布。无需开启测试模式，直接安装驱动。安装文件windows_driver_sign/xfz1986_usb_graphic_250224_rc_sign.exe， 感谢pika提供的签名支持。
-2.  arduino 版本发布。 目录arduino/udisp_xfz1986。 提交一个esp32s3/s2 st7789例子。 arduino/udisp_xfz1986/examples/esp32sx_udisp_st7789/esp32sx_udisp_st7789.ino 有一个简单说明文件。
-3.  idf5.3 esp32s3版本发布，参考esp_spark例子改的，只有usb显示屏功能。 device_porting/esp-idf5.3_udisp_s3_st7789_example
+1.  windowsc驱动签名版本发布  
+   无需开启测试模式，直接安装驱动。安装文件windows_driver_sign/xfz1986_usb_graphic_250224_rc_sign.exe， 感谢pika提供的签名支持。
+2.  arduino 版本发布  
+    目录arduino/udisp_xfz1986。 提交一个esp32s3/s2 st7789例子。 arduino/udisp_xfz1986/examples/esp32sx_udisp_st7789/esp32sx_udisp_st7789.ino 有一个简单说明文件。
+3.  idf5.3 esp32s3版本发布  
+   参考esp_spark例子改的，只有usb显示屏功能。 device_porting/esp-idf5.3_udisp_s3_st7789_example
 4.  更新jpg编码库，使用turbo jpeg， 能显著降低cpu开销，感谢肉馅提供帮助。
-5.  增加buffer limit信息，解决jpg编码太大，超过下位机buffer的问题。当编码后jpg超过buffer limit会自动降质量，减少帧数据。Bl+buffers size in KB.
+5.  设备描述符增加buffer limit信息
+    解决某些画面jpg编码太大，超过下位机buffer的问题。当编码后jpg超过buffer limit会自动降质量，减少帧数据。Bl+buffers_size_in_KB.
    Bl: B means Buffer; l means limit. Bl20 表示缓冲区大小为20KB. 不带此参数，默认8MB.
-   example:
-      esp32s3_R320x240_Ejpg4_Fps20_Bl20
-      t113_R480x480_Ejpg6_Fps60_Bl300
-      esp32p4_R480x480_Ejpg6_Fps60_Bl300
-6. 增加一个zlp workaround功能，当数据帧是整usb pipe size时，linux driver可以发出zlp(zero lenght package)表示end, windows会发一个0xff type size=0的短帧,可以用来提供一个强制end消息。当然不用也可以。
+   example:  
+      esp32s3_R320x240_Ejpg4_Fps20_Bl20      
+      t113_R480x480_Ejpg6_Fps60_Bl300      
+      esp32p4_R480x480_Ejpg6_Fps60_Bl300  
+6. windows driver 增加一个zlp workaround功能.  
+   当数据帧是整usb pipe size时，linux driver可以发出zlp(zero lenght package)表示end, windows会发一个0xff type size=0的短帧,可以用来提供一个强制end消息。下位机忽略就好了。
 
 # 20250113  update
 1. add ubuntu/Linux OS support, so we can use extern screen on ubuntu OS/Windows10/11.
