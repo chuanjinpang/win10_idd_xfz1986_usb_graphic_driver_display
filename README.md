@@ -17,6 +17,9 @@ QQ 交流群：496016248
       esp32p4_R480x480_Ejpg6_Fps60_Bl300  
 6. windows driver 增加一个zlp workaround功能.  
    当数据帧是整usb pipe size时，linux driver可以发出zlp(zero lenght package)表示end, windows会发一个0xff type size=0的短帧,可以用来提供一个强制end消息。下位机忽略就好了。
+7. 设备PID命名规则，对于复合型设备(USB显示+audio+touch触摸)PID=0x2986. 单功能USB设备PID=0x2987   
+   原因是windows对于USB多功能使用2986_MI来识别，所以要特别的区分PID。
+   
 
 # 20250113  update
 1. add ubuntu/Linux OS support, so we can use extern screen on ubuntu OS/Windows10/11.
