@@ -1,5 +1,9 @@
 QQ 交流群：496016248
 
+# 20260712 update
+1. ubuntu/Linux driver updata for modern drm support.
+   ubuntu/Linux驱动更新成更现代的drm方式，这样不需要再去编写xorg.conf配置文件。方便支持多个usb显示屏，即插即用。树莓派也可以用（验证过）。
+
 # 20250328 update
 1.  windowsc驱动签名版本发布  
    无需开启测试模式，直接安装驱动。安装文件windows_driver_sign/xfz1986_usb_graphic_250224_rc_sign.exe， 感谢pika提供的签名支持。
