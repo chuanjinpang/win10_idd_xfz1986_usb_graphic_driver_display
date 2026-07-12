@@ -1124,8 +1124,10 @@ static void tjei_stdlib_func(void* context, void* data, int size)
     if(sg->dp + size < sg->max) {
         memcpy(&sg->data[sg->dp], data, size);
         sg->dp += size;
-    } else
+    } else {
+        sg->overflow = 1;
         LOGW("%s over max %d %d %d\n", __FUNCTION__, sg->dp, size, sg->max);
+    }
 }
 
 // Define public interface.
@@ -1160,10 +1162,10 @@ int tje_encode_with_func(tje_write_func* func,
     uint8_t qt_factor = 1;
 	int quality=iquality;
     int i;
-    if(quality < 1 || quality > MAX_JPG_QUAILITY) {
-        tje_log("[ERROR] -- Valid 'quality'%d values are 1 (lowest), 2,3,4,5,(highest)\n",quality);
-       if(quality<1)
-	   	 quality=1;
+    if(quality < 0 || quality > MAX_JPG_QUAILITY) {
+        tje_log("[ERROR] -- Valid 'quality'%d values are 0 (lowest),1,2,...,%d(highest)\n",quality,MAX_JPG_QUAILITY);
+       if(quality<0)
+	   	 quality=0;
 	   else
 	   	 quality=MAX_JPG_QUAILITY;
     }
@@ -1206,6 +1208,18 @@ int tje_encode_with_func(tje_write_func* func,
             }
         }
         break;
+	case 0:
+		for(i = 0; i < 64; ++i) {
+			pstate->qt_luma[i]   = tjei_default_qt_luma_from_spec[i] * 2;
+			if(pstate->qt_luma[i] > 255) {
+				pstate->qt_luma[i] = 255;
+			}
+			pstate->qt_chroma[i] = tjei_default_qt_chroma_from_paper[i] * 2;
+			if(pstate->qt_chroma[i] > 255) {
+				pstate->qt_chroma[i] = 255;
+			}
+		}
+		break;
     default:
         assert(!"invalid code path");
         break;

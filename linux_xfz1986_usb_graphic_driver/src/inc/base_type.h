@@ -13,10 +13,10 @@
 #include <linux/kthread.h>
 #include <linux/string.h>
 #include <linux/delay.h>
-#include <linux/fb.h>
 #include <linux/mm.h>
 #include <linux/vmalloc.h>
 #include <linux/types.h>
+#include <linux/device.h>
 
 
 

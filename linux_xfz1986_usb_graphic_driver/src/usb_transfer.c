@@ -9,13 +9,14 @@
  */
 #include "inc/base_type.h"
 #include "inc/usb_transfer.h"
-#include "inc/fbhandlers.h"
+#include "inc/drm_handlers.h"
 #include "inc/udisp_config.h"
 #include "inc/log.h"
 #include "inc/enc_base.h"
 #include "inc/enc_raw_rgb.h"
 #include "inc/enc_jpg.h"
 
+#include <drm/drm_modeset_helper.h>
 
 #define DL_ALIGN_UP(x, a) ALIGN(x, a)
 #define DL_ALIGN_DOWN(x, a) ALIGN(x-(a-1), a)
@@ -34,19 +35,23 @@ static const struct usb_device_id id_table[] = {
     },
     { },
 };
+MODULE_DEVICE_TABLE(usb, id_table);
 
 static atomic_t udisp_count = ATOMIC_INIT(0);
 
 
 static void urb_write_completion_routine(struct urb *urb)
 {
-    purb_itm_t urb_itm=urb->context;
-    struct xfz1986_udisp_dev   * dev = urb_itm->dev;
-    urb_mgr_t * mgr=&dev->urb_mgr;
-    /* sync/async unlink faults aren't errors */
-    if(urb->status) {
-        LOGE("transmission failed for urb %p, error code %x\n", urb, urb->status);
-    }
+	LOGD("%s %d\n", __func__, __LINE__);
+	purb_itm_t urb_itm = urb->context;
+	struct xfz1986_drm_device *dev = urb_itm->dev;
+	urb_mgr_t *mgr = &dev->urb_mgr;
+
+	/* sync/async unlink faults aren't errors */
+	if (urb->status) {
+		LOGE("transmission failed for urb %p, error code %x\n",
+		     urb, urb->status);
+	}
 
 LOG("%s  urb:%px %x\n",  __func__,urb,urb->status);
 
@@ -61,25 +66,28 @@ LOG("%s  urb:%px %x\n",  __func__,urb,urb->status);
 }
 
 
-static purb_itm_t get_one_urb_item(struct xfz1986_udisp_dev * dev)
+urb_itm_t *get_one_urb_item(struct xfz1986_drm_device *dev)
 {
+	LOGD("%s %d\n", __func__, __LINE__);
     unsigned long irq_flags;
      struct list_head *node;
      purb_itm_t purb=NULL;
 
-    if(!dev->is_alive) return 0;
+	if (!dev->is_alive)
+		return NULL;
 
     spin_lock_irqsave(&dev->urb_mgr.oplock, irq_flags);
-    if(!list_empty(&dev->urb_mgr.urb_list))
-    {
-       purb =list_first_entry(&dev->urb_mgr.urb_list,urb_itm_t,node);	      
+	if (!list_empty(&dev->urb_mgr.urb_list)) {
+		purb = list_first_entry(&dev->urb_mgr.urb_list,
+					urb_itm_t, node);
        list_del(&purb->node);
     }
     spin_unlock_irqrestore(&dev->urb_mgr.oplock, irq_flags);
     return purb;
 }
 
-int usb_send_msg_async(struct xfz1986_udisp_dev * dev,urb_itm_t * urb, const uint8_t * msg_data, int msg_size)
+int usb_send_msg_async(struct xfz1986_drm_device *dev, urb_itm_t *urb,
+		       const uint8_t *msg_data, int msg_size)
 {
     LOG("%s %d\n",  __func__, msg_size);
 
@@ -97,8 +105,9 @@ int usb_send_msg_async(struct xfz1986_udisp_dev * dev,urb_itm_t * urb, const uin
 }
 
 
-void decision_runtime_encoder(struct xfz1986_udisp_dev * dev){
-
+void decision_runtime_encoder(struct xfz1986_drm_device *dev)
+{
+	LOGD("%s %d\n", __func__, __LINE__);
 	LOG("%s enc%d quality%d\n",__func__,dev->enc,dev->quality);
 	dev->encoder=&dev->_encoder;
 	switch(dev->enc){
@@ -119,17 +128,15 @@ void decision_runtime_encoder(struct xfz1986_udisp_dev * dev){
 
 }
 
-u64 get_os_us(void);
-
-
-long get_system_us(void)
+u64 get_os_us(void)
 {
-    return get_os_us();
+	return ktime_get_ns() / 1000;
 }
 
 
 long get_fps(fps_mgr_t * mgr)
 {	  
+	LOGD("%s %d\n", __func__, __LINE__);
 	 if(mgr->cur < FPS_STAT_MAX)//we ignore first loop and also ignore rollback case due to a long period
 		 return mgr->last_fps;//if <0 ,please ignore it
 	else {
@@ -170,23 +177,53 @@ void put_fps_data(fps_mgr_t* mgr,long t)
 
 
 
-int xfz1986_udisp_usb_try_send_jpeg_image(struct xfz1986_udisp_dev * dev, const pixel_type_t * framebuffer, int x, int y, int right, int bottom)
+int xfz1986_udisp_usb_try_send_jpeg_image(struct xfz1986_drm_device *dev,
+					  const pixel_type_t *framebuffer,
+					  int x, int y, int right, int bottom)
 {
+	LOGD("%s %d\n", __func__, __LINE__);
     int total_bytes;
     int ret=0;
-    long a,b,c,d,t;
-    urb_itm_t* purb = get_one_urb_item(dev);
+	long a, b, c, d;
+	urb_itm_t *purb;
+	static u64 last_tick;
+	u64 now;
+
+	a = get_os_us();
+
+#if 1
+	now = get_os_us();
+	if ((now - last_tick) < 10 * 1000) { /* ~10ms min interval */
+		LOGD("%s skip, diff:%llu\n", __func__, now - last_tick);
+		return -1;
+	}
+	last_tick = now;
+#endif
+	purb = get_one_urb_item(dev);
     if(NULL != purb) {
-        LOGD("issue urb id:%d (%d %d %d %d)\n",purb->id,x,y,right,bottom);
-        total_bytes = dev->encoder->enc(dev->encoder,&purb->urb->transfer_buffer[sizeof(udisp_frame_header_t)],(uint8_t *)framebuffer,0, 0, right, bottom, right+1);
-        c=get_system_us();						
-        dev->encoder->enc_header(dev->encoder,purb->urb->transfer_buffer,0,0, right, bottom, total_bytes);
+		LOGD("issue urb id:%d (%d %d %d %d)\n",
+		     purb->id, x, y, right, bottom);
+		b = get_os_us();
+		total_bytes = dev->encoder->enc(
+			dev->encoder,
+			&purb->urb->transfer_buffer[sizeof(udisp_frame_header_t)],
+			(uint8_t *)framebuffer,
+			0, 0, right, bottom, right + 1);
+		c = get_os_us();
+		dev->encoder->enc_header(
+			dev->encoder,
+			purb->urb->transfer_buffer,
+			0, 0, right, bottom, total_bytes);
         total_bytes+=sizeof(udisp_frame_header_t);
-        ret = usb_send_msg_async(dev,purb, purb->urb->transfer_buffer, total_bytes);
+		ret = usb_send_msg_async(dev, purb,
+					 purb->urb->transfer_buffer,
+					 total_bytes);
     
-        d=get_system_us();
-        put_fps_data(&dev->fps_mgr,get_system_us());
-        LOGM("%d fps:%d g%ld e%ld s%ld %ld (%ld)\n", total_bytes+sizeof(udisp_frame_header_t), ((int)get_fps(&dev->fps_mgr))/10,b-a,c-b,d-c,d-a,a-t);
+		d = get_os_us();
+		put_fps_data(&dev->fps_mgr, d);
+		LOGM("%d fps:%d e%ld s%ld %ld\n",
+		     total_bytes, ((int)get_fps(&dev->fps_mgr)) / 10,
+		     c - b, d - c, d - a);
     
     } else {
         LOGM("%s no urb item so drop\n",__func__);
@@ -196,10 +233,11 @@ int xfz1986_udisp_usb_try_send_jpeg_image(struct xfz1986_udisp_dev * dev, const 
     return ret;
 }
 
-int  urb_mgr_init(urb_mgr_t * mgr,struct xfz1986_udisp_dev * dev){
+int urb_mgr_init(urb_mgr_t *mgr, struct xfz1986_drm_device *dev)
+{
+    LOGD("%s %d\n", __func__, __LINE__);
     int i = 0;
     purb_itm_t purb;
-	int status;
      _u8   * transfer_buffer;
 
 	LOG("%s init urb list\n",__func__);
@@ -220,7 +258,9 @@ int  urb_mgr_init(urb_mgr_t * mgr,struct xfz1986_udisp_dev * dev){
             break;
         }
 
-        transfer_buffer = usb_alloc_coherent(dev->udev, DISP_MAX_TRANSFER_SIZE, GFP_KERNEL, &purb->urb->transfer_dma);
+		transfer_buffer = usb_alloc_coherent(
+			dev->udev, DISP_MAX_TRANSFER_SIZE,
+			GFP_KERNEL, &purb->urb->transfer_dma);
         if(!transfer_buffer) {
             usb_free_urb(purb->urb);
             kfree(purb);
@@ -228,8 +268,11 @@ int  urb_mgr_init(urb_mgr_t * mgr,struct xfz1986_udisp_dev * dev){
         }
 
         // setup urb
-        usb_fill_bulk_urb(purb->urb, dev->udev, usb_sndbulkpipe(dev->udev, dev->disp_out_ep_addr),
-                          transfer_buffer, DISP_MAX_TRANSFER_SIZE, urb_write_completion_routine, purb);
+		usb_fill_bulk_urb(purb->urb, dev->udev,
+				  usb_sndbulkpipe(dev->udev,
+						  dev->disp_out_ep_addr),
+				  transfer_buffer, DISP_MAX_TRANSFER_SIZE,
+				  urb_write_completion_routine, purb);
         purb->urb->transfer_flags |= URB_NO_TRANSFER_DMA_MAP;
 
         purb->id = i;
@@ -249,8 +292,9 @@ typedef struct {
 char str[USB_INFO_STR_SIZE];
 } item_t;
 
-int  split_config_str(char * str, item_t * cfg ,int max){
-
+int split_config_str(char *str, item_t *cfg, int max)
+{
+	LOGD("%s %d\n", __func__, __LINE__);
 	int cnt=0;
 	int i=0,j=0;
 	redo:
@@ -274,15 +318,19 @@ int  split_config_str(char * str, item_t * cfg ,int max){
 }
 
 #define CFG_MAX 10
-void parse_usb_dev_info(char * str,int * reg,int * w, int * h, int * enc, int * quality, int * fps){
-item_t cfg[CFG_MAX] = { 0 };
+void parse_usb_dev_info(char *str, int *reg, int *w, int *h,
+			int *enc, int *quality, int *fps)
+{
+	LOGD("%s %d\n", __func__, __LINE__);
+	item_t cfg[CFG_MAX] = { { 0 } };
 int cnt=0,t,i;
 int enc_cfged=0;
 	cnt=split_config_str(str,cfg,CFG_MAX);
 		
 	//cnt = sscanf(str,"%[^_]_%[^_]_%[^_]_%[^_]",type_str,whstr,enc_str,fps_str);
 	if(cnt<2){
-	LOGW("%s [%d] dev info string violation xfz1986 udisp SPEC, so use default\n",str,cnt);
+		LOGW("%s [%d] dev info string violation, using defaults\n",
+		     str, cnt);
 	}
 	
 
@@ -303,18 +351,17 @@ int enc_cfged=0;
 	*quality=5;
 
 	for(i=1;i<cnt;i++){
-		char * str=cfg[i].str;
-		LOGD("%d %s\n",i,str);
-		switch(str[0])
-		{
+		char *s = cfg[i].str;
+		LOGD("%d %s\n", i, s);
+		switch (s[0]) {
 		case 'R':
-			t=sscanf(str,"R%dx%d",w,h);
+			t = sscanf(s, "R%dx%d", w, h);
 			if(t == 2){
 				LOGI("udisp w%d h%d\n",*w, *h);
 			}
 			break;
 		case 'F':
-			t = sscanf(str, "Fps%d", fps);
+			t = sscanf(s, "Fps%d", fps);
 		    if (t == 1) {
 		        LOGI("udisp fps%d\n", *fps);
 		    }
@@ -322,38 +369,39 @@ int enc_cfged=0;
 		case 'E':
 			if(enc_cfged) //first is high prio
 				break;
-			switch(str[1]){
+			switch (s[1]) {
 			case 'j':
-				t=sscanf(str,"Ejpg%d",quality);
+				t = sscanf(s, "Ejpg%d", quality);
 				if(t==1){
 					*enc=UDISP_TYPE_JPG;
 					enc_cfged++;
-					LOGI("enc:%d quality:%d\n",*enc,*quality);
+					LOGI("enc:%d quality:%d\n",
+					     *enc, *quality);
 				}
 				break;
 			case 'r':
-				t=sscanf(str,"Ergb%d",quality);
+				t = sscanf(s, "Ergb%d", quality);
 				if(t==1){
 					if(*quality ==16 ){
 						*enc=UDISP_TYPE_RGB565;
 						enc_cfged++;
-						LOGI("enc:%d quality:%d\n",*enc,*quality);
-					}else if (*quality == 32)
-						{
+					} else if (*quality == 32) {
 						*enc=UDISP_TYPE_RGB888;
 						enc_cfged++;
-						LOGI("enc:%d quality:%d\n",*enc,*quality);
 					}
+					LOGI("enc:%d quality:%d\n",
+					     *enc, *quality);
 				}else {
 					*enc=UDISP_TYPE_RGB888;
-					LOGE("wrong Enc str %s",str);
+					LOGE("wrong Enc str %s\n", s);
 			
 				}
 				break;
 			default:
 				*enc=UDISP_TYPE_JPG;
 				*quality=5;
-				LOGW("default enc:%d quality:%d\n",*enc,*quality);
+				LOGW("default enc:%d quality:%d\n",
+				     *enc, *quality);
 			}
 			break;
 		default:
@@ -365,150 +413,180 @@ int enc_cfged=0;
 }
 
 
-static int _on_new_usb_device(struct xfz1986_udisp_dev * dev)
+/* ------------------------------------------------------------------ */
+/* USB Probe / Disconnect                                              */
+
+static int xfz1986_udisp_probe(struct usb_interface *interface,
+			       const struct usb_device_id *id)
 {
-    mutex_init(&dev->op_locker);
+	LOGI("%s %d\n", __func__, __LINE__);
+	struct xfz1986_drm_device *xdev = NULL;
+	struct drm_device *dev;
+	struct usb_host_interface *iface_desc;
+	struct usb_endpoint_descriptor *endpoint;
+	int i;
+	int retval = -ENOMEM;
 
+	printk("in %s sizeof(*xdev)=%zu\n", __func__, sizeof(*xdev));
 
-  
-    if(urb_mgr_init(&dev->urb_mgr,dev) < 0) {
-        dev_info(&dev->interface->dev, "Cannot create urb mgr\n");
-        goto urb_mgr_ceate_fail;
-    }
+	/*
+	 * Allocate + initialize DRM device in one call (5.15+ API).
+	 * struct xfz1986_drm_device MUST have drm_device as first member.
+	 */
+	xdev = devm_drm_dev_alloc(&interface->dev, &xfz1986_drm_driver,
+				  struct xfz1986_drm_device, dev);
+	if (IS_ERR(xdev)) {
+		retval = PTR_ERR(xdev);
+		dev_err(&interface->dev,
+			"drm_dev_alloc failed: %d\n", retval);
+		return retval;
+	}
+	dev = &xdev->dev;
 
-	
-	parse_usb_dev_info(dev->udisp_dev_info,&dev->reg,&dev->w,&dev->h,&dev->enc,&dev->quality,&dev->fps);
-	LOGI("w%d h%d enc%d quaility%d fps:%d",dev->w,dev->h,dev->enc,dev->quality,dev->fps);
+	xdev->udev = usb_get_dev(interface_to_usbdev(interface));
+	xdev->interface = interface;
 
-	decision_runtime_encoder(dev);
-	
+	printk("%s prod:%s\n", __func__, xdev->udev->product);
+	if (le16_to_cpu(xdev->udev->descriptor.bcdDevice) > 0x0200) {
+		dev_warn(&interface->dev,
+			 "device may require a newer driver version\n");
+	}
+
+	/* Get DMA device for prime buffer sharing */
+	xdev->dmadev = usb_intf_get_dma_device(interface);
+	if (!xdev->dmadev)
+		printk("buffer sharing not supported\n"); /* not an error */
+
+	/* check for endpoints */
+	iface_desc = interface->cur_altsetting;
+	printk("%s ifstr:%s\n", __func__, iface_desc->string);
+
+	/* Note: udisp_dev_info may not be null-terminated in the descriptor.
+	 * Copy product string safely.
+	 */
+	//strncpy(xdev->udisp_dev_info, xdev->udev->product,
+	strncpy(xdev->udisp_dev_info, iface_desc->string,
+		sizeof(xdev->udisp_dev_info) - 1);
+
+	for (i = 0; i < iface_desc->desc.bNumEndpoints; ++i) {
+		endpoint = &iface_desc->endpoint[i].desc;
+
+		if (!xdev->disp_out_ep_addr &&
+		    usb_endpoint_is_bulk_out(endpoint) &&
+		    endpoint->wMaxPacketSize) {
+			LOGI("%s endpoint for video output found\n", __func__);
+			xdev->disp_out_ep_addr = endpoint->bEndpointAddress;
+			xdev->disp_out_ep_max_size =
+				le16_to_cpu(endpoint->wMaxPacketSize);
+		}
+	}
+
+	if (!(xdev->disp_out_ep_addr)) {
+		LOGE("%s Could not find the required endpoints\n", __func__);
+		retval = -ENODEV;
+		goto err_put_dev;
+	}
+
+	/* Initialize mutex */
+	mutex_init(&xdev->op_locker);
+
+	/* Initialize URB manager */
+	if (urb_mgr_init(&xdev->urb_mgr, xdev) < 0) {
+		dev_info(&interface->dev, "Cannot create urb mgr\n");
+		retval = -ENOMEM;
+		goto err_put_dev;
+	}
+
+	/* Parse USB device info string for resolution, encoder, etc. */
+	parse_usb_dev_info(xdev->udisp_dev_info, &xdev->reg,
+			   &xdev->w, &xdev->h,
+			   &xdev->enc, &xdev->quality, &xdev->fps);
+	LOGI("w%d h%d enc%d quality%d fps:%d\n",
+	     xdev->w, xdev->h, xdev->enc, xdev->quality, xdev->fps);
+
+	/* Fallback to defaults if parsing didn't provide w/h */
+	if (xdev->w == 0)
+		xdev->w = UDISP_DEFAULT_WIDTH;
+	if (xdev->h == 0)
+		xdev->h = UDISP_DEFAULT_HEIGHT;
+
+	/* Select encoder based on device config */
+	decision_runtime_encoder(xdev);
+
 	atomic_inc(&udisp_count);
-     dev->dev_id =  atomic_read(&udisp_count);
-    dev->is_alive = 1;
+	xdev->dev_id = atomic_read(&udisp_count);
+	xdev->is_alive = 1;
 
-	register_fb_handlers(dev);
-    
+	/* Save data pointer in interface */
+	usb_set_intfdata(interface, xdev);
 
-    return 0;
+	/* Initialize and register DRM device */
+	retval = xfz1986_drm_device_init(xdev);
+	if (retval) {
+		dev_err(&interface->dev,
+			"DRM device init failed: %d\n", retval);
+		goto err_put_dev;
+	}
 
-urb_mgr_ceate_fail:
-    return -ENOMEM;
+	return 0;
+
+err_put_dev:
+	put_device(xdev->dmadev);
+	xdev->dmadev = NULL;
+	usb_put_dev(xdev->udev);
+	return retval;
 }
 
 
-static void _on_del_usb_device(struct xfz1986_udisp_dev * dev)
+static int xfz1986_udisp_suspend(struct usb_interface *intf,
+				 pm_message_t message)
 {
+	LOGI("%s %d\n", __func__, __LINE__);
+	struct xfz1986_drm_device *xdev = usb_get_intfdata(intf);
 
-    mutex_lock(&dev->op_locker);
-    dev->is_alive = 0;
-    mutex_unlock(&dev->op_locker);
+	if (!xdev)
+		return 0;
 
-	unregister_fb_handlers(dev);
-
-    // kill all pending urbs
-
-
-	atomic_dec(&udisp_count);
-
-    dev_info(&dev->interface->dev, "udisp (#%d) now disconnected\n", dev->dev_id);
-}
-
-static int xfz1986_udisp_probe(struct usb_interface *interface, const struct usb_device_id *id)
-{
-
-    struct xfz1986_udisp_dev *dev = NULL;
-    struct usb_host_interface *iface_desc;
-    struct usb_endpoint_descriptor *endpoint;
-    size_t buffer_size;
-    int i;
-    int retval = -ENOMEM;
-    printk("in %s %d\n", __FUNCTION__,sizeof(*dev));
-    /* allocate memory for our device state and initialize it */
-    dev = kzalloc(sizeof(*dev), GFP_KERNEL);
-    if(dev == NULL) {
-        LOGE("%s Out of memory\n",__func__);
-        goto error;
-    }
-
-    dev->udev = usb_get_dev(interface_to_usbdev(interface));
-    dev->interface = interface;
-
-    printk("%s prod:%s\n", __FUNCTION__,dev->udev->product);
-    if(le16_to_cpu(dev->udev->descriptor.bcdDevice) > 0x0200) {
-        dev_warn(&interface->dev, "The device you used may requires a newer driver version to work.\n");
-    }
-
-    // check for endpoints
-    iface_desc = interface->cur_altsetting;
-
-    printk("%s ifstr:%s\n", __FUNCTION__,iface_desc->string);
-	//strcpy(dev->udisp_dev_info,iface_desc->string);
-	strcpy(dev->udisp_dev_info,dev->udev->product);
-	
-    for(i = 0; i < iface_desc->desc.bNumEndpoints; ++i) {
-        endpoint = &iface_desc->endpoint[i].desc;
-
-
-        if(!dev->disp_out_ep_addr &&
-           usb_endpoint_is_bulk_out(endpoint) && endpoint->wMaxPacketSize) {
-            LOGI("%s endpoint for video output has been found\n",__func__);
-            dev->disp_out_ep_addr = endpoint->bEndpointAddress;
-            dev->disp_out_ep_max_size = le16_to_cpu(endpoint->wMaxPacketSize);
-
-        }
-    }
-
-    if(!(dev->disp_out_ep_addr)) {
-        LOGE("%s Could not find the required endpoints\n",__func__);
-        goto error;
-    }
-
-
-    /* save our data pointer in this interface device */
-    usb_set_intfdata(interface, dev);
-
-    // add the device to the list
-    if(_on_new_usb_device(dev)) {
-        goto error;
-    }
-    return 0;
-
-error:
-    if(dev) {
-        kfree(dev);
-    }
-    return retval;
-}
-
-
-
-
-static int xfz1986_udisp_suspend(struct usb_interface *intf, pm_message_t message)
-{
-    struct usb_lcd *dev = usb_get_intfdata(intf);
-
-    if(!dev)
-        return 0;
-    // not implemented yet
-    return 0;
+	return drm_mode_config_helper_suspend(&xdev->dev);
 }
 
 
 static int xfz1986_udisp_resume(struct usb_interface *intf)
 {
-    // not implemented yet
-    return 0;
+	LOGI("%s %d\n", __func__, __LINE__);
+	struct xfz1986_drm_device *xdev = usb_get_intfdata(intf);
+
+	if (!xdev)
+		return 0;
+
+	return drm_mode_config_helper_resume(&xdev->dev);
 }
+
 
 static void xfz1986_udisp_disconnect(struct usb_interface *interface)
 {
-    struct xfz1986_udisp_dev *dev;
+	LOGI("%s %d\n", __func__, __LINE__);
+	struct xfz1986_drm_device *xdev;
 
-    dev = usb_get_intfdata(interface);
-    usb_set_intfdata(interface, NULL);
-    _on_del_usb_device(dev);
+	xdev = usb_get_intfdata(interface);
+	if (!xdev)
+		return;
 
-    kfree(dev);
+	xdev->is_alive = 0;
+
+	xfz1986_drm_device_fini(xdev);
+
+	put_device(xdev->dmadev);
+	xdev->dmadev = NULL;
+
+	usb_set_intfdata(interface, NULL);
+
+	usb_put_dev(xdev->udev);
+
+	atomic_dec(&udisp_count);
+
+	dev_info(&interface->dev, "udisp (#%d) now disconnected\n",
+		 xdev->dev_id);
 }
 
 

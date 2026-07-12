@@ -12,7 +12,6 @@
  */
 #include "inc/base_type.h"
 #include "inc/usb_transfer.h"
-#include "inc/fbhandlers.h"
 #include "inc/log.h"
 
 int debug_level=LOG_LEVEL_INFO;

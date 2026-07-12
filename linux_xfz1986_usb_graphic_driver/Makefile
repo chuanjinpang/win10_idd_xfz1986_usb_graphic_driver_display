@@ -12,7 +12,7 @@
 ######################################
 
 
-DRIVER_NAME := xfz_udisp
+DRIVER_NAME := xfz1986_udisp
 KERNEL_SOURCE_DIR ?= /lib/modules/`uname -r`/build
 
 EXTRA_CFLAGS +=-g -I$(PWD)/src -I$(PWD)/../common
@@ -21,7 +21,7 @@ obj-m := $(DRIVER_NAME).o
 
 DRIVER_FILES := src/main.o \
                 src/usb_transfer.o \
-		src/fbhandlers.o \
+		src/drm_handlers.o \
 		src/tiny_jpeg.o src/enc_raw_rgb.o src/enc_base.o src/enc_raw_rgb.o src/enc_jpg.o\
 		src/test_pattern.o
 

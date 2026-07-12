@@ -1,7 +1,10 @@
 #ifndef ENC_BASE_H
 #define ENC_BASE_H
 
+/* Use kernel-provided cpu_to_le16 from linux/byteorder/generic.h */
+#ifndef cpu_to_le16
 #define cpu_to_le16(x)  (uint16_t)(x)
+#endif
 
 #define rgb565(r, g, b) (((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3))
 
@@ -38,6 +41,9 @@ int (*enc_header)(enc_base_t * this,uint8_t * enc,int x, int y, int right, int b
 uint8_t enc_type;
 //sub class
 int	jpg_quality;
+
+	uint8_t *conv_buf;      // format-conversion buffer (tightly-packed RGB888)
+	int     conv_buf_size;   // current size of conv_buf in bytes
 
 } enc_base_t;
 

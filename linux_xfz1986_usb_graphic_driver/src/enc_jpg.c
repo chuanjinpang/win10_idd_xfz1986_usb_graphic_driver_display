@@ -4,6 +4,7 @@
 #include "inc/enc_base.h"
 #include "inc/enc_jpg.h"
 #include"inc/tiny_jpeg.h"
+#include <linux/slab.h>
 
 
 #define JPEG_MAX_SIZE 256*1024
@@ -55,19 +56,54 @@ int enc_jpg_enc( enc_base_t * this,uint8_t * enc, uint8_t * src,int x, int y, in
 {
 	stream_mgr_t m_mgr;
 	stream_mgr_t * mgr = &m_mgr;
-	#if 0
-	int len=rgb888a_to_rgb888(enc,(uint32_t*)src,x,y,right,bottom,line_width);
-	memcpy(src,enc,len);
-	#endif
-	//ok we use jpeg transfer data
+	int w = right - x + 1;
+	int h = bottom - y + 1;
+	int quality = this->jpg_quality;
+	int ret;
+	int conv_bytes = w * h * 3;  /* tightly-packed RGB888 */
+
 	mgr->data = enc;
 	mgr->max = JPEG_MAX_SIZE;
-	mgr->dp = 0;
-	if (!tje_encode_to_ctx(mgr, (right - x + 1), (bottom - y + 1), 4, src, this->jpg_quality)) {
-		LOGE("Could not encode JPEG\n");
+
+	/* Ensure conversion buffer is large enough */
+	if (!this->conv_buf || this->conv_buf_size < conv_bytes) {
+		uint8_t *new_buf = krealloc(this->conv_buf, conv_bytes, GFP_KERNEL);
+		if (!new_buf) {
+			LOGE("jpg: failed to alloc conv_buf %d bytes\n", conv_bytes);
+			return 0;
+		}
+		this->conv_buf = new_buf;
+		this->conv_buf_size = conv_bytes;
 	}
 
-	LOG("jpg: total:%d %d\n", mgr->dp, this->jpg_quality);
+	/* Convert XRGB8888 framebuffer (with stride) to tightly-packed RGB888 */
+	rgb888a_to_rgb888(this->conv_buf, (uint32_t *)src,
+			   x, y, right, bottom, line_width);
+
+	/* Auto-lower quality on overflow: retry until fits or hit quality=0 */
+	do {
+		mgr->dp = 0;
+		mgr->overflow = 0;
+		ret = tje_encode_to_ctx(mgr, w, h, 3, this->conv_buf, quality);
+		if (!ret) {
+			LOGE("Could not encode JPEG at quality %d\n", quality);
+			return 0;
+		}
+		if (mgr->overflow && quality > 0) {
+			LOGW("jpg: overflow at quality %d (%d bytes), retry quality %d\n",
+			     quality, mgr->dp, quality - 1);
+			quality--;
+		} else {
+			break;
+		}
+	} while (1);
+
+	if (quality != this->jpg_quality) {
+		LOGD("jpg: auto-lowered quality %d -> %d, final size %d\n",
+		     this->jpg_quality, quality, mgr->dp);
+	} else {
+		LOGD("jpg: total:%d quality:%d\n", mgr->dp, quality);
+	}
 
 	return mgr->dp;
 }

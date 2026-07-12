@@ -3,6 +3,7 @@
 #include "inc/log.h"
 #include "inc/enc_base.h"
 #include "inc/enc_raw_rgb.h"
+#include "inc/enc_jpg.h"
 
 int  rgb888x_encoder_rgb565(uint16_t * pix_msg ,uint32_t * framebuffer ,int x, int y, int right, int bottom, int line_width)
 {
@@ -59,9 +60,8 @@ return 0;
 
 
 int enc_rgb888a_enc(enc_base_t * this,uint8_t* enc, uint8_t * src, int x, int y, int right, int bottom, int line_width) {
-    int total_bytes = (right - x + 1) * (bottom - y + 1) * 2;
-    memcpy(enc, src, total_bytes);
-    return 0;
+	return rgb888a_to_rgb888(enc, (uint32_t *)src,
+				 x, y, right, bottom, line_width);
 }
 
 int create_enc_rgb888a(enc_base_t * this)
